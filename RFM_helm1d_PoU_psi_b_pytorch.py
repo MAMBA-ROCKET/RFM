@@ -30,13 +30,15 @@ class RFM_rep(nn.Module):
     def __init__(self, in_features, J_n, x_max, x_min):
         super(RFM_rep, self).__init__()
         self.in_features = in_features
-        self.hidden_features = J_n
+        self.hidden_features = J_n # hidden features as the number of basis functions in every point
         self.J_n = J_n
         self.x_min = x_min
         self.x_max = x_max
-        self.a = 2.0/(x_max - x_min)
-        self.x_0 = (x_max + x_min)/2
+        self.a = 2.0/(x_max - x_min) # 1/radius
+        self.x_0 = (x_max + x_min)/2 # center point
         self.hidden_layer = nn.Sequential(nn.Linear(self.in_features, self.hidden_features, bias=True),nn.Tanh())
+        # nn.linear will generate Jn basis functions and they will pass into the next layer
+        # this NN is learning the weight of every basis function I guess this makes sense
 
     def forward(self,x):
         d = (x - self.x_min) / (self.x_max - self.x_min)
@@ -45,8 +47,8 @@ class RFM_rep(nn.Module):
         d2 = (d <= 3/4)  & (d > 1/4)
         d3 = (d <= 5/4)  & (d > 3/4)
         d4 = d > 5/4
-        y = self.a * (x - self.x_0)
-        y = self.hidden_layer(y)
+        y = self.a * (x - self.x_0)  # here y is the input of hidden layer, as the x variable
+        y = self.hidden_layer(y) # here y is the local approximation of every point 
         y0 = 0
         y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
         y2 = y
@@ -87,15 +89,18 @@ def pre_define(M_p,J_n,Q):
     points = []
     for k in range(M_p):
         x_min = 8.0/M_p * k
-        x_max = 8.0/M_p * (k+1)
-        model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max)
+        x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
+        model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
         model = model.apply(weights_init)
         model = model.double()
         for param in model.parameters():
             param.requires_grad = False
         models.append(model)
         points.append(torch.tensor(np.linspace(x_min, x_max, Q+1),requires_grad=True).reshape([-1,1]))
+        # Every interval has Q+1 points, and the first and last point are the boundary points
     return(models,points)
+
+
 
 
 # calculate the matrix A,f in linear equations system 'Au=f'
