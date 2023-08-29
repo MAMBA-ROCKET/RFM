@@ -151,11 +151,11 @@ def test(models,M_p,J_n,Q,w,plot = False):
     true_values = []
     numerical_values = []
     test_Q = int(1000/M_p)
-    for k in range(M_p):
+    for k in range(M_p): # k is for domain decomposition
         points = torch.tensor(np.linspace(8.0/M_p * (k), 8.0/M_p * (k+1), test_Q+1),requires_grad=False).reshape([-1,1])
         out_total = None
         for m in range(M_p):
-            out = models[m](points)
+            out = models[m](points) # m is for model defined in every subdomain
             values = out.detach().numpy()
             if out_total is None:
                 out_total = values
