@@ -41,8 +41,8 @@ class RFM_rep(nn.Module):
         # this NN is learning the weight of every basis function I guess this makes sense
 
     def forward(self,x):
-        d = (x - self.x_min) / (self.x_max - self.x_min)
-        #d = (x - self.x_0) * self.a
+        #d = (x - self.x_min) / (self.x_max - self.x_min)
+        d = (x - self.x_0) * self.a
         d0 = (d <= -1/4)
         d1 = (d <= 1/4)  & (d > -1/4)
         d2 = (d <= 3/4)  & (d > 1/4)
