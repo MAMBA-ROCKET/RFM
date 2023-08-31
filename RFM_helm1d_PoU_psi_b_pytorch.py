@@ -41,8 +41,8 @@ class RFM_rep(nn.Module):
         # this NN is learning the weight of every basis function I guess this makes sense
 
     def forward(self,x):
-        #d = (x - self.x_min) / (self.x_max - self.x_min)
-        d = (x - self.x_0) * self.a
+        d = (x - self.x_min) / (self.x_max - self.x_min)
+        #d = (x - self.x_0) * self.a
         d0 = (d <= -1/4)
         d1 = (d <= 1/4)  & (d > -1/4)
         d2 = (d <= 3/4)  & (d > 1/4)
@@ -72,6 +72,9 @@ lamb = 4
 def anal_u(x):
     return AA * np.sin(bb * (x + 0.05)) * np.cos(aa * (x + 0.05)) + 2.0
 
+def anal_dudx_1st(x):
+    return AA * (bb*np.cos(bb*(x+0.05))*np.cos(aa*(x+0.05)) - aa*np.sin(bb*(x+0.05))*np.sin(aa*(x+0.05)))
+
 def anal_dudx_2nd(x):
     return -AA*(aa*aa+bb*bb)*np.sin(bb*(x+0.05))*np.cos(aa*(x+0.05))\
            -2.0*AA*aa*bb*np.cos(bb*(x+0.05))*np.sin(aa*(x+0.05))
@@ -79,7 +82,7 @@ def anal_dudx_2nd(x):
 def Lu_f(pointss, lambda_ = 4):
     r = []
     for x in pointss:
-        f = anal_dudx_2nd(x) + lambda_*anal_u(x)
+        f = anal_dudx_2nd(x) + lambda_*anal_u(x) + anal_dudx_1st(x)
         r.append(f)
     return(np.array(r))
 
@@ -129,7 +132,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
                 grads_2.append(g_2.squeeze().detach().numpy())
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
-            Lu = grads_2 + lamb * values
+            Lu = grads_2 + lamb * values + grads
             # Lu = f condition
             A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
             # boundary condition
