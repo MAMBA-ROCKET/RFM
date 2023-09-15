@@ -20,8 +20,8 @@ def set_seed(x):
 # random initialization for parameters in FC layer
 def weights_init(m):
     if isinstance(m, (nn.Conv2d, nn.Linear)):
-        nn.init.uniform_(m.weight, a = -1, b = 1)
-        nn.init.uniform_(m.bias, a = -1, b = 1)
+        nn.init.uniform_(m.weight, a = 2, b = 2)
+        nn.init.uniform_(m.bias, a = 0, b = 0)
         #nn.init.normal_(m.weight, mean=0, std=1)
         #nn.init.normal_(m.bias, mean=0, std=1)
 
@@ -36,7 +36,7 @@ class RFM_rep(nn.Module):
         self.x_max = x_max
         self.a = 2.0/(x_max - x_min) # 1/radius
         self.x_0 = (x_max + x_min)/2 # center point
-        self.hidden_layer = nn.Sequential(nn.Linear(self.in_features, self.hidden_features, bias=True),nn.Tanh()) # This looks complex but do simple things
+        self.hidden_layer = nn.Sequential(nn.Linear(self.in_features, self.hidden_features, bias=True),nn.Tanh()) 
         # nn.linear will generate Jn basis functions and they will pass into the next layer
         # this NN is learning the weight of every basis function I guess this makes sense
 
@@ -53,7 +53,30 @@ class RFM_rep(nn.Module):
         y0 = 0
         y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
         y2 = y
-        y3 = y * (1 - torch.sin(2*np.pi*(d-1)) ) / 2
+        y3 = y * (1 - torch.sin(2*np.pi*d) ) / 2
+        y4 = 0
+        if self.x_min == 0:
+            return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
+        elif self.x_max == interval_length:
+            return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
+        else:
+            return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
+        
+
+    def forward(self,x):
+        d = (x - self.x_min) / (self.x_max - self.x_min)
+        #d = (x - self.x_0) * self.a
+        d0 = (d <= -1/4)
+        d1 = (d <= 1/4)  & (d > -1/4)
+        d2 = (d <= 3/4)  & (d > 1/4)
+        d3 = (d <= 5/4)  & (d > 3/4)
+        d4 = (d > 5/4)
+        y = self.a * (x - self.x_0)  # here y is the input of hidden layer, as the x variable
+        y = self.hidden_layer(y) # The left hand side y is the local approximation of every point 
+        y0 = 0
+        y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
+        y2 = y
+        y3 = y * (1 - torch.sin(2*np.pi*d) ) / 2
         y4 = 0
         if self.x_min == 0:
             return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
@@ -82,7 +105,7 @@ def anal_dudx_2nd(x):
 def Lu_f(pointss, lambda_ = 4):
     r = []
     for x in pointss:
-        f = anal_dudx_2nd(x) + lambda_*anal_u(x) + anal_dudx_1st(x)
+        f = anal_dudx_2nd(x)
         r.append(f)
     return(np.array(r))
 
@@ -102,6 +125,8 @@ def pre_define(M_p,J_n,Q):
         models.append(model)
         points.append(torch.tensor(np.linspace(x_min, x_max, Q+1),requires_grad=True).reshape([-1,1]))
         # Every interval has Q+1 points, and the first and last point are the boundary points
+    #print('points:',points)
+    #print('number of points:',len(points))
     return(models,points)
 
 
@@ -132,7 +157,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
                 grads_2.append(g_2.squeeze().detach().numpy())
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
-            Lu = grads_2 + lamb * values + grads
+            Lu = grads_2
             # Lu = f condition
             A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
             # boundary condition
@@ -157,6 +182,7 @@ def test(models,M_p,J_n,Q,w,plot = False):
     test_Q = int(1000/M_p)
     for k in range(M_p): # k is for domain decomposition
         points = torch.tensor(np.linspace(8.0/M_p * (k), 8.0/M_p * (k+1), test_Q+1),requires_grad=False).reshape([-1,1])
+        #print('points:',points)
         out_total = None
         for m in range(M_p):
             out = models[m](points) # m is for model defined in every subdomain
@@ -166,12 +192,21 @@ def test(models,M_p,J_n,Q,w,plot = False):
             else:
                 out_total = np.concatenate((out_total,values),axis=1)
         true_value = anal_u(points.numpy()).reshape([-1,1])
+        #print('out_total:',out_total)
         numerical_value = np.dot(np.array(out_total), w)
+        #print('numerical_value:',numerical_value)
         true_values.extend(true_value)
         numerical_values.extend(numerical_value)
         epsilon.extend(true_value - numerical_value)
     true_values = np.array(true_values)
+
     numerical_values = np.array(numerical_values)
+    for i in range(len(numerical_values)):
+        print(numerical_values[i])
+    #print('Approximate solution:',numerical_values)
+    #print('Exact solution:',true_values)
+    # print(true_values.shape)
+    print(np.max(np.abs(true_values - numerical_values)))
     epsilon = np.array(epsilon)
     epsilon = np.maximum(epsilon, -epsilon)
     print('********************* ERROR *********************')
@@ -210,6 +245,8 @@ def main(M_p,J_n,Q,plot = False, moore = False):
         w = lstsq(A,f)[0]
     
     # test
+    w = np.ones_like(w)
+    print('number of coefficient:',len(w))
     return(test(models,M_p,J_n,Q,w,plot))
 
 
@@ -219,5 +256,5 @@ if __name__ == '__main__':
     #M_p = 4 # the number of basis center points
     J_n = 50 # the number of basis functions per center points
     Q = 50 # the number of collocation pointss per basis functions support
-    for M_p in [4,8,16]:
+    for M_p in [4]:
         main(M_p,J_n,Q,True,False)
