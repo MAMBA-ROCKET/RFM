@@ -20,8 +20,8 @@ def set_seed(x):
 # random initialization for parameters in FC layer
 def weights_init(m):
     if isinstance(m, (nn.Conv2d, nn.Linear)):
-        nn.init.uniform_(m.weight, a = 2, b = 2)
-        nn.init.uniform_(m.bias, a = 0, b = 0)
+        nn.init.uniform_(m.weight, a = -1, b = 1)
+        nn.init.uniform_(m.bias, a = -1, b = 1)
         #nn.init.normal_(m.weight, mean=0, std=1)
         #nn.init.normal_(m.bias, mean=0, std=1)
 
@@ -245,7 +245,7 @@ def main(M_p,J_n,Q,plot = False, moore = False):
         w = lstsq(A,f)[0]
     
     # test
-    w = np.ones_like(w)
+    # w = np.ones_like(w)
     print('number of coefficient:',len(w))
     return(test(models,M_p,J_n,Q,w,plot))
 

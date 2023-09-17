@@ -1,0 +1,27 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import sympy as sp
+import scipy.optimize as sciopt
+import copy
+import random
+import time
+
+
+
+
+plot_points = 1000+1
+x_plot = np.linspace(0, 8, plot_points)
+
+AA = 1
+aa = 2.0*np.pi
+bb = 3.0*np.pi
+U_analytic = AA * np.sin(bb * (x_plot + 0.05)) * np.cos(aa * (x_plot + 0.05)) + 2.0
+
+plt.plot(x_plot,U_analytic)
+plt.xlabel('x')
+plt.ylabel('y')
