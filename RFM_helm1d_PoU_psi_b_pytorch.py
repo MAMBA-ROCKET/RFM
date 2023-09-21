@@ -79,11 +79,14 @@ class RFM_rep(nn.Module):
         y3 = y * (1 - torch.sin(2*np.pi*d) ) / 2
         y4 = 0
         if self.x_min == 0:
-            return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
+            return((d1+d2)*y2+d3*y3)
+            #return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
         elif self.x_max == interval_length:
-            return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
+            return(d1*y1+(d2+d3)*y2)
+            #return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
         else:
-            return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
+            return(d1*y1+d2*y2+d3*y3)
+            #return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
 
 # analytical solution parameters
 AA = 1
@@ -119,7 +122,7 @@ def pre_define(M_p,J_n,Q):
         x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
         model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
         model = model.apply(weights_init)
-        model = model.double()
+        #model = model.double()
         for param in model.parameters():
             param.requires_grad = False
         models.append(model)
@@ -175,7 +178,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
 
 
 # calculate the l^{inf}-norm and l^{2}-norm error for u,v,p
-def test(models,M_p,J_n,Q,w,plot = False):
+def test(models,M_p,J_n,Q,w,plot = True):
     epsilon = []
     true_values = []
     numerical_values = []
@@ -220,7 +223,7 @@ def test(models,M_p,J_n,Q,w,plot = False):
         plt.plot(x, numerical_values, label = "numerical solution", color='darkblue', linestyle='--')
         plt.legend()
         plt.title('exact solution')
-        #plt.savefig('./numerical_solution.pdf', dpi=100)
+        plt.savefig('./numerical_solution.pdf', dpi=100)
         
         plt.figure()
         plt.plot(x, epsilon, label = "absolute error", color='black')
@@ -230,7 +233,7 @@ def test(models,M_p,J_n,Q,w,plot = False):
     return(epsilon.max(),math.sqrt(8*sum(epsilon*epsilon)/len(epsilon)))
 
 
-def main(M_p,J_n,Q,plot = False, moore = False):
+def main(M_p,J_n,Q,plot = True, moore = False):
     # prepare models and collocation pointss
     models,points = pre_define(M_p,J_n,Q)
     
