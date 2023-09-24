@@ -40,27 +40,27 @@ class RFM_rep(nn.Module):
         # nn.linear will generate Jn basis functions and they will pass into the next layer
         # this NN is learning the weight of every basis function I guess this makes sense
 
-    def forward(self,x):
-        d = (x - self.x_min) / (self.x_max - self.x_min)
-        #d = (x - self.x_0) * self.a
-        d0 = (d <= -1/4)
-        d1 = (d <= 1/4)  & (d > -1/4)
-        d2 = (d <= 3/4)  & (d > 1/4)
-        d3 = (d <= 5/4)  & (d > 3/4)
-        d4 = (d > 5/4)
-        y = self.a * (x - self.x_0)  # here y is the input of hidden layer, as the x variable
-        y = self.hidden_layer(y) # The left hand side y is the local approximation of every point 
-        y0 = 0
-        y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
-        y2 = y
-        y3 = y * (1 - torch.sin(2*np.pi*d) ) / 2
-        y4 = 0
-        if self.x_min == 0:
-            return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
-        elif self.x_max == interval_length:
-            return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
-        else:
-            return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
+    # def forward(self,x):
+    #     d = (x - self.x_min) / (self.x_max - self.x_min)
+    #     #d = (x - self.x_0) * self.a
+    #     d0 = (d <= -1/4)
+    #     d1 = (d <= 1/4)  & (d > -1/4)
+    #     d2 = (d <= 3/4)  & (d > 1/4)
+    #     d3 = (d <= 5/4)  & (d > 3/4)
+    #     d4 = (d > 5/4)
+    #     y = self.a * (x - self.x_0)  # here y is the input of hidden layer, as the x variable
+    #     y = self.hidden_layer(y) # The left hand side y is the local approximation of every point 
+    #     y0 = 0
+    #     y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
+    #     y2 = y
+    #     y3 = y * (1 - torch.sin(2*np.pi*d) ) / 2
+    #     y4 = 0
+    #     if self.x_min == 0:
+    #         return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
+    #     elif self.x_max == interval_length:
+    #         return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
+    #     else:
+    #         return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
         
 
     def forward(self,x):
