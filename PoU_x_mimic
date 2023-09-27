@@ -481,116 +481,116 @@ print('L_inf:',np.max(np.abs(Error)))
 
 
 # Newton's method
-params = list(net.local_weights)
-for _ in range(1):  # number of Newton iterations
-    # Zero the gradients
-    for p in params:
-        if p.grad is not None:
-            p.grad.zero_()    
+# params = list(net.local_weights)
+# for _ in range(1):  # number of Newton iterations
+#     # Zero the gradients
+#     for p in params:
+#         if p.grad is not None:
+#             p.grad.zero_()    
 
-    # Forward and backward pass to compute gradient
-    u_global_test = torch.zeros(num_points_col,1)
-    for idx in range(num_points_i_col-1):
-        u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+#     # Forward and backward pass to compute gradient
+#     u_global_test = torch.zeros(num_points_col,1)
+#     for idx in range(num_points_i_col-1):
+#         u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
-    for isx in range(2):
-        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+#     for isx in range(2):
+#         u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
 
-    loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-    loss.backward(create_graph=True)
+#     loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+#     loss.backward(create_graph=True)
 
-    for p in params:
-        if p.grad is not None:
-            print(p.grad)
+#     for p in params:
+#         if p.grad is not None:
+#             print(p.grad)
     
 
-    #grads = torch.autograd.grad(loss, net.parameters(), create_graph=True)
+#     #grads = torch.autograd.grad(loss, net.parameters(), create_graph=True)
 
-    grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
+#     grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
 
 
 
-    #print(net.local_weights[0,0])
+#     #print(net.local_weights[0,0])
 
-    # Compute the Hessian-vector product for each parameter
-    hessian = torch.zeros((len(grad_params), len(grad_params)))
-    for i, g in enumerate(grad_params):
-        print(i)
-        hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
-        hvp_cat = torch.cat([h.view(-1) for h in hvp])
-        hessian[i] = hvp_cat
+#     # Compute the Hessian-vector product for each parameter
+#     hessian = torch.zeros((len(grad_params), len(grad_params)))
+#     for i, g in enumerate(grad_params):
+#         print(i)
+#         hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
+#         hvp_cat = torch.cat([h.view(-1) for h in hvp])
+#         hessian[i] = hvp_cat
 
     
-    print('hessian:',hessian)
-    print('grad_params:',grad_params)
+#     print('hessian:',hessian)
+#     print('grad_params:',grad_params)
 
-    # # 将张量转换为NumPy数组
-    # numpy_array = hessian.numpy()
+#     # # 将张量转换为NumPy数组
+#     # numpy_array = hessian.numpy()
 
-    # # 指定要保存的文件名
-    # file_name = "my_tensor.txt"
+#     # # 指定要保存的文件名
+#     # file_name = "my_tensor.txt"
 
-    # # 使用NumPy的savetxt函数将NumPy数组保存到文本文件中
-    # np.savetxt(file_name, numpy_array, fmt='%f', delimiter='\t')
-    # Convert torch tensors to numpy arrays
-    hessian_np = hessian.detach.numpy()
-    grad_params_np = grad_params.detach.numpy()
+#     # # 使用NumPy的savetxt函数将NumPy数组保存到文本文件中
+#     # np.savetxt(file_name, numpy_array, fmt='%f', delimiter='\t')
+#     # Convert torch tensors to numpy arrays
+#     hessian_np = hessian.detach.numpy()
+#     grad_params_np = grad_params.detach.numpy()
 
-    # Solve for delta using SciPy
-    delta_np = scipy_solve(hessian_np, -grad_params_np)
+#     # Solve for delta using SciPy
+#     delta_np = scipy_solve(hessian_np, -grad_params_np)
 
-    # Convert the result back to a torch tensor if needed
-    delta = torch.tensor(delta_np)
-
-
-
-    # # Solve for delta: Hessian * delta = -grad_params
-    # delta, _ = torch.linalg.solve(hessian, -grad_params.unsqueeze(1))
-    delta = delta.squeeze(1)
-
-    # Update parameters with delta
-    idx = 0
-    for p in params:
-        numel = p.numel()
-        # In-place update
-        p.data += delta[idx:idx+numel].view_as(p).data
-        idx += numel
-
-print(list(net.parameters()))
+#     # Convert the result back to a torch tensor if needed
+#     delta = torch.tensor(delta_np)
 
 
 
-# 将所有模型参数平坦化为一个向量
-def flatten_params():
-    return torch.cat([param.data.view(-1) for param in net.parameters()])
+#     # # Solve for delta: Hessian * delta = -grad_params
+#     # delta, _ = torch.linalg.solve(hessian, -grad_params.unsqueeze(1))
+#     delta = delta.squeeze(1)
 
-# 使用给定的参数向量更新模型参数
-def set_params(params):
-    offset = 0
-    for param in net.parameters():
-        param.data = torch.tensor(params[offset:offset + param.numel()]).view(param.shape)
-        offset += param.numel()
+#     # Update parameters with delta
+#     idx = 0
+#     for p in params:
+#         numel = p.numel()
+#         # In-place update
+#         p.data += delta[idx:idx+numel].view_as(p).data
+#         idx += numel
 
-# 计算损失和梯度
-def objective(params):
-    set_params(params)
-    u_global_test = torch.zeros(num_points_col,1)
-    for idx in range(num_points_i_col-1):
-        u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+# print(list(net.parameters()))
 
-    for isx in range(2):
-        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
-    loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-    return loss.item()
 
-# 使用scipy优化
-initial_params = flatten_params().numpy()
-result = minimize(objective, initial_params, method='BFGS')
 
-print(result.x)
+# # 将所有模型参数平坦化为一个向量
+# def flatten_params():
+#     return torch.cat([param.data.view(-1) for param in net.parameters()])
 
-# 设置最优参数
-set_params(result.x)
+# # 使用给定的参数向量更新模型参数
+# def set_params(params):
+#     offset = 0
+#     for param in net.parameters():
+#         param.data = torch.tensor(params[offset:offset + param.numel()]).view(param.shape)
+#         offset += param.numel()
+
+# # 计算损失和梯度
+# def objective(params):
+#     set_params(params)
+#     u_global_test = torch.zeros(num_points_col,1)
+#     for idx in range(num_points_i_col-1):
+#         u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+#     for isx in range(2):
+#         u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+#     loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+#     return loss.item()
+
+# # 使用scipy优化
+# initial_params = flatten_params().numpy()
+# result = minimize(objective, initial_params, method='BFGS')
+
+# print(result.x)
+
+# # 设置最优参数
+# set_params(result.x)
 
 
 
