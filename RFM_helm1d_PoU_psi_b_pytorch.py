@@ -204,8 +204,8 @@ def test(models,M_p,J_n,Q,w,plot = True):
     true_values = np.array(true_values)
 
     numerical_values = np.array(numerical_values)
-    for i in range(len(numerical_values)):
-        print(numerical_values[i])
+    # for i in range(len(numerical_values)):
+    #     print(numerical_values[i])
     #print('Approximate solution:',numerical_values)
     #print('Exact solution:',true_values)
     # print(true_values.shape)
@@ -249,6 +249,9 @@ def main(M_p,J_n,Q,plot = True, moore = False):
     
     # test
     # w = np.ones_like(w)
+    for i,res in enumerate(w):
+        print(res)
+        print(i)
     print('number of coefficient:',len(w))
     return(test(models,M_p,J_n,Q,w,plot))
 
@@ -257,7 +260,7 @@ def main(M_p,J_n,Q,plot = True, moore = False):
 if __name__ == '__main__':
     set_seed(100)
     #M_p = 4 # the number of basis center points
-    J_n = 50 # the number of basis functions per center points
-    Q = 50 # the number of collocation pointss per basis functions support
+    J_n = 25 # the number of basis functions per center points
+    Q = 25 # the number of collocation pointss per basis functions support
     for M_p in [4]:
         main(M_p,J_n,Q,True,False)

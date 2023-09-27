@@ -12,6 +12,7 @@ import random
 import time
 from scipy.linalg import solve as scipy_solve
 from scipy.optimize import minimize
+from scipy.linalg import lstsq,pinv
 
 
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -36,13 +37,13 @@ len_interval = len_interval/num_points_i
 
 
 # Number of features locally
-num_features = 50  
+num_features = 25 
 
 # Number of features globally
 M = 10
 
 
-eps = 1e-10
+eps = 1e-11
 disturb = torch.zeros((num_features*num_points,1))
 disturb[1,0] = eps
 
@@ -431,52 +432,119 @@ print('L_inf:',np.max(np.abs(Error)))
 
 
 
-# # Newton's method
-# params = list(net.parameters())
+# Newton's method
+params = list(net.parameters())
 
-# for p in params:
-#     if p.grad is not None:
-#         p.grad.zero_()
+for p in params:
+    if p.grad is not None:
+        p.grad.zero_()
 
-# for p in params:
-#     if p.grad is not None:
-#         print('current:',p.grad)
+for p in params:
+    if p.grad is not None:
+        print('current:',p.grad)
 
-# # Forward and backward pass to compute gradient
-# u_global_test = torch.zeros(num_points_col,1)
-# for idx in range(num_points_i_col-1):
-#     u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+# Forward and backward pass to compute gradient
+u_global_test = torch.zeros(num_points_col,1)
+for idx in range(num_points_i_col-1):
+    u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
-# for isx in range(2):
-#     u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+for isx in range(2):
+    u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
 
-# loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-# # x_interior_col.requires_grad = False
-# # x_boundary_col.requires_grad = False
-# loss.backward(create_graph=True,retain_graph=True)
+loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+# x_interior_col.requires_grad = False
+# x_boundary_col.requires_grad = False
+loss.backward(create_graph=True,retain_graph=True)
 
-# for p in params:
-#     if p.grad is not None:
-#         print('wrong')
-#         print('new:',p.grad)
+for p in params:
+    if p.grad is not None:
+        print('wrong')
+        print('new:',p.grad)
 
 # with torch.no_grad():
 #     net.local_weights += disturb
 
-# #print('local_weights:',net.local_weights)
+#print('local_weights:',net.local_weights)
 
-# u_global_test1 = torch.zeros(num_points_col,1)
-# for idx in range(num_points_i_col-1):
-#     u_global_test1[idx,0] = global_solution(x_interior_col[idx], net, radius)
+u_global_test1 = torch.zeros(num_points_col,1)
+for idx in range(num_points_i_col-1):
+    u_global_test1[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
-# for isx in range(2):
-#     u_global_test1[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+for isx in range(2):
+    u_global_test1[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
 
-# loss1 = compute_loss(x_interior_col, x_boundary_col, u_global_test1, co_global_test)
+loss1 = compute_loss(x_interior_col, x_boundary_col, u_global_test1, co_global_test)
 
-# target = (loss1 - loss)/eps
+target = (loss1 - loss)/eps
 
-# print('target:',target)
+print('target:',target)
+
+
+#grads = torch.autograd.grad(loss, net.parameters(), create_graph=True)
+
+grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
+
+
+
+#print(net.local_weights[0,0])
+
+# Compute the Hessian-vector product for each parameter
+hessian = torch.zeros((len(grad_params), len(grad_params)))
+for i, g in enumerate(grad_params):
+    print(i)
+    hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
+    hvp_cat = torch.cat([h.view(-1) for h in hvp])
+    hessian[i] = hvp_cat
+
+
+print('hessian:',hessian)
+print('grad_params:',grad_params)
+
+
+
+numpy_matrix = hessian.numpy()
+numpy_vector = grad_params.detach().numpy()
+
+#result = np.linalg.solve(numpy_matrix, -numpy_vector)
+result = lstsq(numpy_matrix, -numpy_vector)[0]
+residue = lstsq(numpy_matrix, -numpy_vector)[1]
+rank = lstsq(numpy_matrix, -numpy_vector)[2]
+
+
+Error = np.dot(numpy_matrix,result) + numpy_vector
+
+result = torch.tensor(result).view(-1,1)
+
+with torch.no_grad():
+    net.local_weights += result
+
+
+
+u_global_test2 = torch.zeros(num_points_col,1)
+for idx in range(num_points_i_col-1):
+    u_global_test2[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+for isx in range(2):
+    u_global_test2[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+
+loss1 = compute_loss(x_interior_col, x_boundary_col, u_global_test2, co_global_test)
+
+AA = 1
+aa = 2.0*torch.pi
+bb = 3.0*torch.pi
+
+U_ana = torch.zeros(num_points_col,1)
+for idx in range(num_points_i_col-1):
+    U_ana[idx,0] = AA*torch.sin(bb*(x_interior_col[idx]+0.05))*torch.cos(aa*(x_interior_col[idx]+0.05)) + 2.0
+
+for isx in range(2):
+    U_ana[isx + num_points_i_col-1,0] = AA*torch.sin(bb*(x_boundary_col[isx]+0.05))*torch.cos(aa*(x_boundary_col[isx]+0.05)) + 2.0
+
+Error1 = U_ana - u_global_test2
+Error1 = Error1.detach().numpy()
+print(np.max(np.abs(Error1)))
+
+
 
 
 
