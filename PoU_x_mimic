@@ -9,133 +9,69 @@ import sympy as sp
 import scipy.optimize as sciopt
 import copy
 import random
-import math
-from scipy.linalg import lstsq,pinv
+import time
+from scipy.linalg import solve as scipy_solve
+from scipy.optimize import minimize
+
 
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-
-# fix random seed
 torch.set_default_dtype(torch.float64)
-def set_seed(x):
-    random.seed(x)
-    np.random.seed(x)
-    torch.manual_seed(x)
-    torch.cuda.manual_seed_all(x)
-    torch.backends.cudnn.deterministic = True
 
-# random initialization for parameters in FC layer
-def weights_init(m):
-    if isinstance(m, (nn.Conv2d, nn.Linear)):
-        nn.init.uniform_(m.weight, a = -1, b = 1)
-        nn.init.uniform_(m.bias, a = -1, b = 1)
-        #nn.init.normal_(m.weight, mean=0, std=1)
-        #nn.init.normal_(m.bias, mean=0, std=1)
+torch.manual_seed(100)
+np.random.seed(100)
+random.seed(100)
 
-# network definition
-class RFM_rep(nn.Module):
-    def __init__(self, in_features, J_n, x_max, x_min):
-        super(RFM_rep, self).__init__()
-        self.in_features = in_features
-        self.hidden_features = J_n # hidden features as the number of basis functions in every point
-        self.J_n = J_n
-        self.x_min = x_min
-        self.x_max = x_max
-        self.a = 2.0/(x_max - x_min) # 1/radius
-        self.x_0 = (x_max + x_min)/2 # center point
-        self.hidden_layer = nn.Sequential(nn.Linear(self.in_features, self.hidden_features, bias=True),nn.Tanh()) 
-        self.local_weights = nn.Parameter(torch.ones(self.J_n, 1))
-        # nn.linear will generate Jn basis functions and they will pass into the next layer
-        # this NN is learning the weight of every basis function I guess this makes sense
-
-    def forward(self,x):
-        d = (x - self.x_min) / (self.x_max - self.x_min)
-        #d = (x - self.x_0) * self.a
-        d0 = (d <= -1/4)
-        d1 = (d <= 1/4)  & (d > -1/4)
-        d2 = (d <= 3/4)  & (d > 1/4)
-        d3 = (d <= 5/4)  & (d > 3/4)
-        d4 = (d > 5/4)
-        y = self.a * (x - self.x_0)  # here y is the input of hidden layer, as the x variable
-        y = self.hidden_layer(y) # The left hand side y is the local approximation of every point 
-        y0 = 0
-        y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
-        y2 = y
-        y3 = y * (1 - torch.sin(2*np.pi*(d-1)) ) / 2
-        y4 = 0
-        if self.x_min == 0:
-            return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
-        elif self.x_max == interval_length:
-            return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
-        else:
-            return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
-        
-
-# analytical solution parameters
-AA = 1
-aa = 2.0*np.pi
-bb = 3.0*np.pi
-interval_length = 8.
-lamb = 4
-
-def anal_u(x):
-    return AA * np.sin(bb * (x + 0.05)) * np.cos(aa * (x + 0.05)) + 2.0
-
-def anal_dudx_1st(x):
-    return AA * (bb*np.cos(bb*(x+0.05))*np.cos(aa*(x+0.05)) - aa*np.sin(bb*(x+0.05))*np.sin(aa*(x+0.05)))
-
-def anal_dudx_2nd(x):
-    return -AA*(aa*aa+bb*bb)*np.sin(bb*(x+0.05))*np.cos(aa*(x+0.05))\
-           -2.0*AA*aa*bb*np.cos(bb*(x+0.05))*np.sin(aa*(x+0.05))
-
-def Lu_f(pointss, lambda_ = 4):
-    r = []
-    for x in pointss:
-        f = anal_dudx_2nd(x)
-        r.append(f)
-    return(np.array(r))
-
-
-# define the local-networks and points in the corresponding regions
-def pre_define(M_p,J_n,Q):
-    models = []
-    points = []
-    for k in range(M_p):
-        x_min = 8.0/M_p * k
-        x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
-        model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
-        model = model.apply(weights_init)
-        model = model.double()
-        for param in model.parameters():
-            param.requires_grad = False
-        models.append(model)
-        points.append(torch.tensor(np.linspace(x_min, x_max, Q+1),requires_grad=True).reshape([-1,1]))
-        # Every interval has Q+1 points, and the first and last point are the boundary points
-    #print('points:',points)
-    print('number of points:',len(points))
-    return(models,points)
-
-
-d
-
-
-
-
-
-
+len_interval = 8.0  # [0, 8]
 # points where basis function is located
 num_points_i = 4
 # 在 [0, 1] 之间生成 num_points_i 个点
-x_interior_points = torch.tensor([1.0,3.0,5.0,7.0]).requires_grad_()
-
-
-x_total = x_interior_points
+#x_interior_points = torch.tensor([1.0,3.0,5.0,7.0])#.requires_grad_()
+#x_interior_points = torch.tensor([0.8,2.4,4,5.6,7.2])#.requires_grad_()
+x_interior_points = torch.tensor([(2*i+1)*len_interval/(2*num_points_i) for i in range(num_points_i)]).requires_grad_()
 
 
 num_points = num_points_i
 
-len_interval = 8/4
+len_interval = len_interval/num_points_i
+
+
+# Number of features locally
+num_features = 50  
+
+# Number of features globally
+M = 10
+
+
+eps = 1e-10
+disturb = torch.zeros((num_features*num_points,1))
+disturb[1,0] = eps
+
+# Radius of local solutions
+radius = len_interval/2  # let radius be based on the distance between two adjacent points
+print(radius)
+
+# collocation points
+num_points_i_col = num_features * num_points
+
+x_interior_col = torch.linspace(0, 8, num_points_i_col+1)[1:-1].requires_grad_()
+x_boundary_col = torch.tensor([0.0, 8.0]).requires_grad_()
+
+num_points_col = num_points_i_col + 1 
+
+
+
+# points for plot
+plot_points = 1000+1
+x_plot = torch.linspace(0, 8, plot_points).requires_grad_()
+x_plot1 = x_plot.detach().numpy()
+#print(x_plot)
+#x_plot = x_plot.view(-1,1)
+
+AA = 1
+aa = 2.0*np.pi
+bb = 3.0*np.pi
+U_analytic = AA * np.sin(bb * (x_plot1 + 0.05)) * np.cos(aa * (x_plot1 + 0.05)) + 2.0
+#print('Analytic solution:',U_analytic)
 
 # Code above describes where the local solutions are constrcutred.
 # The number of points is M_p
@@ -149,46 +85,55 @@ class ExtendedLocalFeatureModelWithWeights(nn.Module):
     def __init__(self, num_features, num_points, M):
         super(ExtendedLocalFeatureModelWithWeights, self).__init__()
         #self.linear = nn.Linear(num_features+M, 1, bias=False)
-        self.local_weights = nn.Parameter(torch.ones(num_points*num_features, 1)) 
-        self.global_weights = nn.Parameter(torch.zeros(M, 1))
+        self.local_weights = nn.Parameter(torch.zeros(num_points*num_features, 1)) 
+        #self.global_weights = nn.Parameter(torch.zeros(M,1))
+        self.global_weights = torch.zeros(M,1)
         self.global_weights.requires_grad = False 
         self.M = M
         self.J_n = num_features
         
         # for local features
-        self.w = torch.linspace(-1,1,num_features).view(-1,1) # 1<=j'<=J_n
-        self.b = torch.linspace(-1,1,num_features)  # current structure of basis functions don't need b
+        self.w = 2*torch.ones(num_features).view(-1,1) # 1<=j'<=J_n
+        self.w = nn.init.uniform_(self.w, a=-1, b=1)
+        self.b = 2*torch.zeros(num_features).view(-1,1) 
+        self.b = nn.init.uniform_(self.b, a=-1, b=1)
         self.w.requires_grad = False
         self.b.requires_grad = False
 
 
         # for global features
-        self.w1 = torch.randn(M, 1)
-        self.w2 = torch.randn(M, 1) 
+        self.w1 = torch.zeros(M, 1)
+        self.w2 = torch.zeros(M, 1) 
         self.w1.requires_grad = False
         self.w2.requires_grad = False
         
     def forward(self, x, point_idx=None):
+        y = 0
+        if point_idx is None:
+            pass
+        else:
+            y = (x-x_interior_points[point_idx])/radius
 
-        local_features_list = [torch.tanh(self.w[i] * (x)) for i in range(self.J_n)]
+
+        local_features_list = [torch.tanh(self.w[i] * (y) + self.b[i]) for i in range(self.J_n)]
         #local_features_list = [torch.tensor([1]) for i in range(self.J_n)]
         local_features = torch.stack(local_features_list, dim=1)
-        global_features_list = [torch.sin(self.w1[i] * torch.pi * (x)) for i in range(self.M)]
+        global_features_list = [torch.sin(self.w1[i] * torch.pi * (y)) for i in range(self.M)]
         global_features = torch.stack(global_features_list, dim=1)   
 
-        u = 0
+        u = torch.zeros(1,1)
 
         if point_idx is not None:
             for i in range(self.J_n):
-                weight = self.local_weights[point_idx*self.J_n+i,0].view(-1,1)
+                weight1 = self.local_weights[point_idx*self.J_n+i,0].view(-1,1)
                 feature = local_features[0,i].view(-1,1)
-                u += weight * feature
+                u += weight1 * feature
 
         else:
             for i in range(self.M):
-                weight = self.global_weights[i,0].view(-1,1) #ok
+                weight2 = self.global_weights[i,0].view(-1,1) #ok
                 feature = global_features[0,i].view(-1,1)
-                u += weight * feature
+                u += weight2 * feature
 
         return u     
 
@@ -199,34 +144,79 @@ def psi(x,d):
     cond1 = (-1/4 < d) & (d <= 1/4)
     cond2 = (1/4 <= d) & (d <= 3/4)
     cond3 = (3/4 < d) & (d <= 5/4)
-    psi[cond1] = (1 + torch.sin(2 * torch.pi * x[cond1]))/2
+    psi[cond1] = (1 + torch.sin(2 * torch.pi * d[cond1]))/2
     psi[cond2] = 1
-    psi[cond3] = (1 - torch.sin(2 * torch.pi * x[cond3]))/2
+    psi[cond3] = (1 - torch.sin(2 * torch.pi * d[cond3]))/2
     return psi
 
 def unity_function(x, center_x, radius):
     x_hat = (x - center_x) / radius
     d = (x - (center_x-radius))/(2*radius) 
-    # if center_x == 0:
-    #     return psi(x_hat,d)
-    # elif center_x == 1:
-    #     pass
-    # else:
-    #     pass
-    return psi(x_hat,d)
+    if center_x == 1:
+
+        psi = torch.zeros_like(x)
+        cond1 = (-1/4 < d) & (d <= 1/4)
+        cond2 = (1/4 < d) & (d <= 3/4)
+        cond3 = (3/4 < d) & (d <= 5/4)
+        psi[cond1] = 1
+        psi[cond2] = 1
+        psi[cond3] = (1 - torch.sin(2 * torch.pi * d[cond3]))/2
+        return psi
+    
+    elif center_x == 7:
+        psi = torch.zeros_like(x)
+        cond1 = (-1/4 < d) & (d <= 1/4)
+        cond2 = (1/4 < d) & (d <= 3/4)
+        cond3 = (3/4 < d) & (d <= 5/4)
+        psi[cond1] = (1 + torch.sin(2 * torch.pi * d[cond1]))/2
+        psi[cond2] = 1
+        psi[cond3] = 1
+        return psi
+    
+    else:
+        psi = torch.zeros_like(x)
+        cond1 = (-1/4 < d) & (d <= 1/4)
+        cond2 = (1/4 < d) & (d <= 3/4)
+        cond3 = (3/4 < d) & (d <= 5/4)
+        psi[cond1] = (1 + torch.sin(2 * torch.pi * d[cond1]))/2
+        psi[cond2] = 1
+        psi[cond3] = (1 - torch.sin(2 * torch.pi * d[cond3]))/2
+        return psi
+    
+# unity function is correct.
 
 
-# Number of features locally
-num_features = 50  
 
-# Number of features globally
-M = 10
+
+# def psi(x):
+#     psi = torch.zeros_like(x)
+#     cond1 = (-5/4 <= x) & (x < -3/4)
+#     cond2 = (-3/4 <= x) & (x < 3/4)
+#     cond3 = (3/4 <= x) & (x < 5/4)
+#     psi[cond1] = (1 + torch.sin(2 * torch.pi * x[cond1])) / 2
+#     psi[cond2] = 1
+#     psi[cond3] = (1 - torch.sin(2 * torch.pi * x[cond3])) / 2
+#     return psi
+
+# def unity_function(x, center_x, radius):
+#     x_hat = (x - center_x) / radius
+#     return psi(x_hat)
+
 
 # Network
 net = ExtendedLocalFeatureModelWithWeights(num_features, num_points, M)
 
-#print('local',net.local_weights)
-#print('global',net.global_weights)
+
+# for param in net.parameters():
+#     print('1:',param)
+
+
+#print('params:',list(net.parameters()))
+
+#print('w:',net.w)
+#print('b:',net.b)
+# print('local',net.local_weights)
+# print('global',net.global_weights)
 
 
 
@@ -237,20 +227,21 @@ net = ExtendedLocalFeatureModelWithWeights(num_features, num_points, M)
 def closure():
     optimizer.zero_grad()
     u_global_test = torch.zeros(num_points_col,1)
-    for idx in range(num_points_i_col):
+    for idx in range(num_points_i_col-1):
         u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
     for isx in range(2):
-        u_global_test[isx + num_points_i_col,0] = global_solution(x_boundary_col[isx], net, radius)
+        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
     loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-    loss.backward(retain_graph=True)
+    #loss.backward(retain_graph=True)
+    loss.backward()
     return loss.item()
 
 
 # closure will output a tensor
 
 class GradientDescentLineSearch:
-    def __init__(self, parameters, alpha=0.001, beta=0.5, init_lr=1e-5):
+    def __init__(self, parameters, alpha=0.01, beta=0.5, init_lr=1e-3):
         self.parameters = list(parameters)
         self.alpha = alpha
         self.beta = beta
@@ -277,7 +268,7 @@ class GradientDescentLineSearch:
             if params.grad is not None:
                 directions = -params.grad  # 负梯度方向
 
-                print('directions:',directions)
+                #print('directions:',directions)
 
                 print('new_param_batch:',k)
 
@@ -291,10 +282,11 @@ class GradientDescentLineSearch:
                 #print('descent',self.alpha * t * torch.dot(-directions.view(-1) , directions.view(-1)))
                 
 
-                while compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test) > loss + self.alpha * t * torch.dot(-directions.view(-1) , directions.view(-1)):
+                while compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test) > 0: #loss + self.alpha * t * torch.dot(-directions.view(-1) , directions.view(-1)):
                     #print('new_loss',compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test))
                     #print(1)
                     t *= self.beta
+                    print('t:',t)
 
                     # Update the parameter
                     # param.add_(direction, alpha=t)
@@ -303,30 +295,29 @@ class GradientDescentLineSearch:
                     #print(params.data)
                     #print('param:',param)
                     u_global_test = torch.zeros(num_points_col,1)
-                    for idx in range(num_points_i_col):
+                    for idx in range(num_points_i_col-1):
                         u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
                     for isx in range(2):
-                        u_global_test[isx + num_points_i_col,0] = global_solution(x_boundary_col[isx], net, radius)
+                        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
 
         
                     if compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test) <= loss + self.alpha * t * torch.dot(-directions.view(-1) , directions.view(-1)):
                         print('step length:',t)
                         print('new loss:',compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test))
+                        break
                     else:
                         params.data.add_(directions * (-t))
 
 
 
-optimizer = GradientDescentLineSearch(net.parameters())
+#optimizer = GradientDescentLineSearch(net.parameters())
 #optimizer = optim.Adam(net.parameters(), lr=0.01)
-#optimizer = optim.LBFGS(net.parameters(), lr=1)
+optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
 
 
 
-# Radius of local solutions
-radius = len_interval/2  # let radius be based on the distance between two adjacent points
-print(radius)
+
 
 
 
@@ -335,20 +326,18 @@ def global_solution(x, net, radius):
     global_sol = torch.zeros(1,1)
 
 
-    global_sol += net(x)
+    #global_sol += net(x)
 
 
     for idx in range(num_points_i):
+
         weight = unity_function(x, x_interior_points[idx], radius).view(-1,1)
-        print('weight:',weight)
+        #print('weight:',weight)
         local_solution = net(x, idx)
-        print('local_solution:',local_solution)
+        #print('local_solution:',local_solution)
         global_sol += weight * local_solution
 
-
     return global_sol # tensor.size([1,1])
-
-
 
 def rescale_PDE(x,net,radius,x_total):
     co_w = torch.randn(num_features, 1)
@@ -358,7 +347,7 @@ def rescale_PDE(x,net,radius,x_total):
             A[n,j] = unity_function(x, x_total[n], radius) * torch.tanh(co_w[j] * (x)) #this is wrong!!!!!!!!!!! sin(x) is located at the center
 
     A_x = torch.autograd.grad(A.sum(), x, create_graph=True)[0]
-    A_xx = torch.autograd.grad(A_x.sum(), x, create_graph=True)[0]
+    A_xx = torch.autograd.grad(A_x.sum(), x, create_graph=False)[0]
     
     co = torch.max(torch.abs(A_xx))
 
@@ -375,70 +364,49 @@ def rescale_boundary(x,net,radius,x_total):
 
     return co
 
-
-
 def pde_loss_function(x, u, co):
     u_x = torch.autograd.grad(u.sum(), x, create_graph=True,retain_graph=True)[0]
     u_xx = torch.autograd.grad(u_x.sum(), x, create_graph=True,retain_graph=True)[0]
 
 
     AA = 1
-    aa = 2.0*np.pi
-    bb = 3.0*np.pi
-    f = -AA*(aa*aa+bb*bb)*np.sin(bb*(x+0.05))*np.cos(aa*(x+0.05))\
-           -2.0*AA*aa*bb*np.cos(bb*(x+0.05))*np.sin(aa*(x+0.05))
+    aa = 2.0*torch.pi
+    bb = 3.0*torch.pi
+    f = -AA*(aa*aa+bb*bb)*torch.sin(bb*(x+0.05))*torch.cos(aa*(x+0.05))\
+           -2.0*AA*aa*bb*torch.cos(bb*(x+0.05))*torch.sin(aa*(x+0.05))
     
-
     #f = torch.pi**2 * torch.sin(torch.pi * x)
-
-
-    pde_loss = torch.sum((u_xx - f) ** 2/(co))
-
+    pde_loss = torch.sum((u_xx - f) ** 2)
 
     return pde_loss
 
-
 def boundary_loss_function(x, u, co):
-    boundary_loss = torch.sum((u)**2/(co))
+    AA = 1
+    aa = 2.0*torch.pi
+    bb = 3.0*torch.pi
+    u_analytic = AA*torch.sin(bb*(x+0.05))*torch.cos(aa*(x+0.05)) + 2.0
+
+    boundary_loss = torch.sum((u - u_analytic)**2)
 
     return boundary_loss
 
-
 def compute_loss(x1, x2, u, co):
-    return boundary_loss_function(x2, u[num_points_i_col:num_points_col,0], co[num_points_i_col:num_points_col,0]) + pde_loss_function(x1, u[0:num_points_i_col,0], co[0:num_points_i_col,0])
+    #return #boundary_loss_function(x2, u[num_points_i_col-1:num_points_col,0], co[num_points_i_col-1:num_points_col,0]) + pde_loss_function(x1, u[0:num_points_i_col-1,0], co[0:num_points_i_col-1,0])
+    return pde_loss_function(x1, u[0:num_points_i_col-1,0], co[0:num_points_i_col-1,0]) + boundary_loss_function(x2, u[num_points_i_col-1:num_points_col,0], co[num_points_i_col-1:num_points_col,0])
 
 def final_solution(x_test,net,radius,n_points):
+
     final_sol = torch.zeros(n_points,1) # 2D
 
     for a in range(n_points):
-        print('check:',global_solution(x_test[a], net, radius).squeeze())
+        #print('check:',global_solution(x_test[a], net, radius).squeeze())
         final_sol[a,0] += global_solution(x_test[a], net, radius).squeeze()  # 0D
+
 
     return final_sol
 
 
-# collocation points
-num_points_i_col = num_features * num_points
 
-x_interior_col = torch.linspace(0, 8, num_points_i_col+1)[1:-1].requires_grad_()
-x_boundary_col = torch.tensor([0.0, 8.0]).requires_grad_()
-
-num_points_col = num_points_i_col + 2 
-
-
-
-# points for plot
-plot_points = 1000+1
-x_plot = torch.linspace(0, 8, plot_points).requires_grad_()
-x_plot = x_plot.detach().numpy()
-print(x_plot)
-#x_plot = x_plot.view(-1,1)
-
-AA = 1
-aa = 2.0*np.pi
-bb = 3.0*np.pi
-U_analytic = AA * np.sin(bb * (x_plot + 0.05)) * np.cos(aa * (x_plot + 0.05)) + 2.0
-print(U_analytic)
 
 
 
@@ -455,9 +423,177 @@ co_global_test = torch.zeros(num_points_col,1)
 
 
 U = final_solution(x_plot, net, radius, plot_points).detach().numpy().reshape(plot_points, 1)
-print('Approximate solution:',U)
+# for i in range(len(U)):
+#     print(U[i])
+#print('Approximate solution:',U)
 Error = U-U_analytic
 print('L_inf:',np.max(np.abs(Error)))
+
+
+
+# # Newton's method
+# params = list(net.parameters())
+
+# for p in params:
+#     if p.grad is not None:
+#         p.grad.zero_()
+
+# for p in params:
+#     if p.grad is not None:
+#         print('current:',p.grad)
+
+# # Forward and backward pass to compute gradient
+# u_global_test = torch.zeros(num_points_col,1)
+# for idx in range(num_points_i_col-1):
+#     u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+# for isx in range(2):
+#     u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+
+# loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+# # x_interior_col.requires_grad = False
+# # x_boundary_col.requires_grad = False
+# loss.backward(create_graph=True,retain_graph=True)
+
+# for p in params:
+#     if p.grad is not None:
+#         print('wrong')
+#         print('new:',p.grad)
+
+# with torch.no_grad():
+#     net.local_weights += disturb
+
+# #print('local_weights:',net.local_weights)
+
+# u_global_test1 = torch.zeros(num_points_col,1)
+# for idx in range(num_points_i_col-1):
+#     u_global_test1[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+# for isx in range(2):
+#     u_global_test1[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+
+# loss1 = compute_loss(x_interior_col, x_boundary_col, u_global_test1, co_global_test)
+
+# target = (loss1 - loss)/eps
+
+# print('target:',target)
+
+
+
+# Newton's method
+params = list(net.local_weights)
+for _ in range(1):  # number of Newton iterations
+    # Zero the gradients
+    for p in params:
+        if p.grad is not None:
+            p.grad.zero_()    
+
+    # Forward and backward pass to compute gradient
+    u_global_test = torch.zeros(num_points_col,1)
+    for idx in range(num_points_i_col-1):
+        u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+    for isx in range(2):
+        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+
+    loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    loss.backward(create_graph=True)
+
+    for p in params:
+        if p.grad is not None:
+            print(p.grad)
+    
+
+    #grads = torch.autograd.grad(loss, net.parameters(), create_graph=True)
+
+    grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
+
+
+
+    #print(net.local_weights[0,0])
+
+    # Compute the Hessian-vector product for each parameter
+    hessian = torch.zeros((len(grad_params), len(grad_params)))
+    for i, g in enumerate(grad_params):
+        print(i)
+        hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
+        hvp_cat = torch.cat([h.view(-1) for h in hvp])
+        hessian[i] = hvp_cat
+
+    
+    print('hessian:',hessian)
+    print('grad_params:',grad_params)
+
+    # # 将张量转换为NumPy数组
+    # numpy_array = hessian.numpy()
+
+    # # 指定要保存的文件名
+    # file_name = "my_tensor.txt"
+
+    # # 使用NumPy的savetxt函数将NumPy数组保存到文本文件中
+    # np.savetxt(file_name, numpy_array, fmt='%f', delimiter='\t')
+    # Convert torch tensors to numpy arrays
+    hessian_np = hessian.detach.numpy()
+    grad_params_np = grad_params.detach.numpy()
+
+    # Solve for delta using SciPy
+    delta_np = scipy_solve(hessian_np, -grad_params_np)
+
+    # Convert the result back to a torch tensor if needed
+    delta = torch.tensor(delta_np)
+
+
+
+    # # Solve for delta: Hessian * delta = -grad_params
+    # delta, _ = torch.linalg.solve(hessian, -grad_params.unsqueeze(1))
+    delta = delta.squeeze(1)
+
+    # Update parameters with delta
+    idx = 0
+    for p in params:
+        numel = p.numel()
+        # In-place update
+        p.data += delta[idx:idx+numel].view_as(p).data
+        idx += numel
+
+print(list(net.parameters()))
+
+
+
+# 将所有模型参数平坦化为一个向量
+def flatten_params():
+    return torch.cat([param.data.view(-1) for param in net.parameters()])
+
+# 使用给定的参数向量更新模型参数
+def set_params(params):
+    offset = 0
+    for param in net.parameters():
+        param.data = torch.tensor(params[offset:offset + param.numel()]).view(param.shape)
+        offset += param.numel()
+
+# 计算损失和梯度
+def objective(params):
+    set_params(params)
+    u_global_test = torch.zeros(num_points_col,1)
+    for idx in range(num_points_i_col-1):
+        u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+    for isx in range(2):
+        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+    loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    return loss.item()
+
+# 使用scipy优化
+initial_params = flatten_params().numpy()
+result = minimize(objective, initial_params, method='BFGS')
+
+print(result.x)
+
+# 设置最优参数
+set_params(result.x)
+
+
+
 
 
 
@@ -468,13 +604,16 @@ record_loss = np.array([0])
 while flag == 1:
     print('epoch:',epoch)
 
+ 
+
+
     
     u_global_test = torch.zeros(num_points_col,1)
-    for idx in range(num_points_i_col):
+    for idx in range(num_points_i_col-1):
         u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
     for isx in range(2):
-        u_global_test[isx + num_points_i_col,0] = global_solution(x_boundary_col[isx], net, radius)
+        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
     #print('Global solution:',u_global)
 
 
@@ -489,14 +628,32 @@ while flag == 1:
     #total_loss.backward(retain_graph=True)
 
     # This is for line search method
-    total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-    optimizer.zero_grad()
-    total_loss.backward(retain_graph=True)
-    optimizer.step(compute_loss, x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # optimizer.zero_grad()
+    # total_loss.backward(retain_graph=True)
+    # optimizer.step(compute_loss, x_interior_col, x_boundary_col, u_global_test, co_global_test)
 
     # This is for LBFGS method
-    # optimizer.step(closure)
-    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    print('start')
+    start_time = time.time()
+    optimizer.step(closure)
+    end_time = time.time()
+    print('end')
+    print('time:',end_time-start_time)
+    #params_list = list(net.parameters())
+
+    #print('param:',params_list)
+    u_global_test = torch.zeros(num_points_col,1)
+    for idx in range(num_points_i_col-1):
+        u_global_test[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+    for isx in range(2):
+        u_global_test[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+
+
+
+    total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    print('total_loss:',total_loss)
 
     # This is for Adam
     # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
@@ -508,18 +665,18 @@ while flag == 1:
     
     
     if epoch % 1 == 0:
-        print('Epoch [%d], Loss: %.4f' % (epoch, total_loss.item()))
+        #print('Epoch [%d], Loss: %.4f' % (epoch, total_loss.item()))
         #print('Epoch [%d], boundary_Loss: %.4f' % (epoch, boundary_loss.item()))
         #print('Epoch [%d], pde_Loss: %.4f' % (epoch, pde_loss.item()))
         
-        record_loss = np.append(record_loss,total_loss.item())
+        #record_loss = np.append(record_loss,total_loss.item())
         U = final_solution(x_plot, net, radius, plot_points).detach().numpy().reshape(plot_points, 1)
         print('mean error:',np.mean(np.abs(U-U_analytic)))
         print('max error:',np.max(np.abs(U-U_analytic)))
         print('min error',np.min(np.abs(U-U_analytic)))
         #Plot the approximate solution
         plt.figure(int(epoch))
-        plt.plot(x_plot,U)
+        plt.plot(x_plot1,U)
         plt.title('Approximate Solution')
         plt.xlabel('x')
         plt.ylabel('y')  
@@ -528,10 +685,10 @@ while flag == 1:
         plt.pause(5)  # Wait for 0.1 seconds
         plt.close()  # Clear the figure for the next plot
         
-    if total_loss.item() < 0.1:
-        flag = 0
+    #if total_loss.item() < 0.1:
+        #flag = 0
 
-    if abs(record_loss[-1] - record_loss[-2]) < 0.01:
-        flag = 0
+    #if abs(record_loss[-1] - record_loss[-2]) < 0.01:
+        #flag = 0
 
     epoch += 1
