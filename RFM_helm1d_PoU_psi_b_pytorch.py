@@ -21,6 +21,7 @@ def set_seed(x):
 def weights_init(m):
     if isinstance(m, (nn.Conv2d, nn.Linear)):
         nn.init.uniform_(m.weight, a = -1, b = 1)
+        print(m.weight)
         nn.init.uniform_(m.bias, a = -1, b = 1)
         #nn.init.normal_(m.weight, mean=0, std=1)
         #nn.init.normal_(m.bias, mean=0, std=1)
@@ -239,6 +240,9 @@ def main(M_p,J_n,Q,plot = True, moore = False):
     
     # matrix define (Aw=b)
     A,f = cal_matrix(models,points,M_p,J_n,Q)
+
+    hessian = np.matmul(A.T,A)
+    print('hessian',hessian)
     
     # solve
     if moore:
@@ -246,12 +250,15 @@ def main(M_p,J_n,Q,plot = True, moore = False):
         w = np.matmul(inv_coeff_mat, f)
     else:
         w = lstsq(A,f)[0]
+        res = (np.dot(A,w) - f)
+        print('residue:',np.max(np.abs(res)))
+        #print('residue:',lstsq(A,f)[1])
     
     # test
     # w = np.ones_like(w)
-    for i,res in enumerate(w):
-        print(res)
-        print(i)
+    # for i,res in enumerate(w):
+    #     print(res)
+    #     print(i)
     print('number of coefficient:',len(w))
     return(test(models,M_p,J_n,Q,w,plot))
 
@@ -260,7 +267,7 @@ def main(M_p,J_n,Q,plot = True, moore = False):
 if __name__ == '__main__':
     set_seed(100)
     #M_p = 4 # the number of basis center points
-    J_n = 25 # the number of basis functions per center points
-    Q = 25 # the number of collocation pointss per basis functions support
+    J_n = 50 # the number of basis functions per center points
+    Q = 50 # the number of collocation pointss per basis functions support
     for M_p in [4]:
         main(M_p,J_n,Q,True,False)

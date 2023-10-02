@@ -37,7 +37,7 @@ len_interval = len_interval/num_points_i
 
 
 # Number of features locally
-num_features = 25 
+num_features = 50 
 
 # Number of features globally
 M = 10
@@ -94,10 +94,19 @@ class ExtendedLocalFeatureModelWithWeights(nn.Module):
         self.J_n = num_features
         
         # for local features
-        self.w = 2*torch.ones(num_features).view(-1,1) # 1<=j'<=J_n
-        self.w = nn.init.uniform_(self.w, a=-1, b=1)
-        self.b = 2*torch.zeros(num_features).view(-1,1) 
-        self.b = nn.init.uniform_(self.b, a=-1, b=1)
+        self.w = torch.ones((num_features,num_points)) # 1<=j'<=J_n
+        for i in range(num_points):
+            self.w[:,i] = nn.init.uniform_(self.w[:,i], a=-1, b=1)
+        self.w = self.w.view(-1,1) 
+        # self.w = 2*torch.ones(num_features).view(-1,1) # 1<=j'<=J_n
+        # self.w = nn.init.uniform_(self.w, a=-1, b=1)
+
+        self.b = torch.ones((num_features,num_points)) # 1<=j'<=J_n
+        for i in range(num_points):
+            self.b[:,i] = nn.init.uniform_(self.b[:,i], a=-1, b=1)
+        self.b = self.b.view(-1,1)
+        # self.b = 2*torch.zeros(num_features).view(-1,1) 
+        # self.b = nn.init.uniform_(self.b, a=-1, b=1)
         self.w.requires_grad = False
         self.b.requires_grad = False
 
@@ -116,7 +125,7 @@ class ExtendedLocalFeatureModelWithWeights(nn.Module):
             y = (x-x_interior_points[point_idx])/radius
 
 
-        local_features_list = [torch.tanh(self.w[i] * (y) + self.b[i]) for i in range(self.J_n)]
+        local_features_list = [torch.tanh(self.w[i+num_features*point_idx] * (y) + self.b[i+num_features*point_idx]) for i in range(self.J_n)]
         #local_features_list = [torch.tensor([1]) for i in range(self.J_n)]
         local_features = torch.stack(local_features_list, dim=1)
         global_features_list = [torch.sin(self.w1[i] * torch.pi * (y)) for i in range(self.M)]
@@ -207,15 +216,8 @@ def unity_function(x, center_x, radius):
 # Network
 net = ExtendedLocalFeatureModelWithWeights(num_features, num_points, M)
 
-
-# for param in net.parameters():
-#     print('1:',param)
-
-
-#print('params:',list(net.parameters()))
-
-#print('w:',net.w)
-#print('b:',net.b)
+# for i in range(num_points*num_features):
+#     print(net.w[i,0])
 # print('local',net.local_weights)
 # print('global',net.global_weights)
 
@@ -458,7 +460,6 @@ loss.backward(create_graph=True,retain_graph=True)
 
 for p in params:
     if p.grad is not None:
-        print('wrong')
         print('new:',p.grad)
 
 # with torch.no_grad():
