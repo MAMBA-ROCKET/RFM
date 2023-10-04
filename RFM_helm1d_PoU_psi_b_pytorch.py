@@ -162,6 +162,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
             grads = np.array(grads).T
             grads_2 = np.array(grads_2).T
             Lu = grads_2
+            print(Lu.shape)
             # Lu = f condition
             A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
             # boundary condition
@@ -243,6 +244,8 @@ def main(M_p,J_n,Q,plot = True, moore = False):
 
     hessian = np.matmul(A.T,A)
     print('hessian',hessian)
+
+    print('loss:',np.sum(f**2))
     
     # solve
     if moore:
@@ -255,7 +258,7 @@ def main(M_p,J_n,Q,plot = True, moore = False):
         #print('residue:',lstsq(A,f)[1])
     
     # test
-    # w = np.ones_like(w)
+    w = np.ones_like(w)
     # for i,res in enumerate(w):
     #     print(res)
     #     print(i)

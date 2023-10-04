@@ -18,11 +18,12 @@ from scipy.linalg import lstsq,pinv
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float64)
 
-torch.manual_seed(100)
-np.random.seed(100)
-random.seed(100)
 
-len_interval = 8.0  # [0, 8]
+random.seed(100)
+np.random.seed(100)
+torch.manual_seed(100)
+
+len_interval = 4.0  # [0, 8]
 # points where basis function is located
 num_points_i = 4
 # 在 [0, 1] 之间生成 num_points_i 个点
@@ -54,8 +55,8 @@ print(radius)
 # collocation points
 num_points_i_col = num_features * num_points
 
-x_interior_col = torch.linspace(0, 8, num_points_i_col+1)[1:-1].requires_grad_()
-x_boundary_col = torch.tensor([0.0, 8.0]).requires_grad_()
+x_interior_col = torch.linspace(0, 4, num_points_i_col+1)[1:-1].requires_grad_()
+x_boundary_col = torch.tensor([0.0, 4.0]).requires_grad_()
 
 num_points_col = num_points_i_col + 1 
 
@@ -63,7 +64,7 @@ num_points_col = num_points_i_col + 1
 
 # points for plot
 plot_points = 1000+1
-x_plot = torch.linspace(0, 8, plot_points).requires_grad_()
+x_plot = torch.linspace(0, 4, plot_points).requires_grad_()
 x_plot1 = x_plot.detach().numpy()
 #print(x_plot)
 #x_plot = x_plot.view(-1,1)
@@ -162,7 +163,7 @@ def psi(x,d):
 def unity_function(x, center_x, radius):
     x_hat = (x - center_x) / radius
     d = (x - (center_x-radius))/(2*radius) 
-    if center_x == 1:
+    if center_x == 0.5:
 
         psi = torch.zeros_like(x)
         cond1 = (-1/4 < d) & (d <= 1/4)
@@ -173,7 +174,7 @@ def unity_function(x, center_x, radius):
         psi[cond3] = (1 - torch.sin(2 * torch.pi * d[cond3]))/2
         return psi
     
-    elif center_x == 7:
+    elif center_x == 3.5:
         psi = torch.zeros_like(x)
         cond1 = (-1/4 < d) & (d <= 1/4)
         cond2 = (1/4 < d) & (d <= 3/4)
@@ -486,16 +487,22 @@ print('target:',target)
 grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
 
 
-
+hessian = torch.zeros((len(grad_params), len(grad_params)))
+for idx, g in enumerate(p.grad.view(-1)):
+    print(idx)
+    grad1 = torch.autograd.grad(loss, params, retain_graph=True, create_graph=True)[0]
+    # Compute the gradient of each gradient element with respect to the parameters
+    grad2 = torch.autograd.grad(g, p, retain_graph=True, create_graph=False)[0]
+    hessian[idx] = grad2.view(-1)
 #print(net.local_weights[0,0])
 
 # Compute the Hessian-vector product for each parameter
-hessian = torch.zeros((len(grad_params), len(grad_params)))
-for i, g in enumerate(grad_params):
-    print(i)
-    hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
-    hvp_cat = torch.cat([h.view(-1) for h in hvp])
-    hessian[i] = hvp_cat
+# hessian = torch.zeros((len(grad_params), len(grad_params)))
+# for i, g in enumerate(grad_params):
+#     print(i)
+#     hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
+#     hvp_cat = torch.cat([h.view(-1) for h in hvp])
+#     hessian[i] = hvp_cat
 
 
 print('hessian:',hessian)
@@ -504,6 +511,8 @@ print('grad_params:',grad_params)
 
 
 numpy_matrix = hessian.numpy()
+non_zero_count = np.count_nonzero(numpy_matrix)
+print('check:',non_zero_count)
 numpy_vector = grad_params.detach().numpy()
 
 #result = np.linalg.solve(numpy_matrix, -numpy_vector)
