@@ -163,7 +163,7 @@ def psi(x,d):
 def unity_function(x, center_x, radius):
     x_hat = (x - center_x) / radius
     d = (x - (center_x-radius))/(2*radius) 
-    if center_x == 0.5:
+    if center_x == x_interior_points[0]:
 
         psi = torch.zeros_like(x)
         cond1 = (-1/4 < d) & (d <= 1/4)
@@ -174,7 +174,7 @@ def unity_function(x, center_x, radius):
         psi[cond3] = (1 - torch.sin(2 * torch.pi * d[cond3]))/2
         return psi
     
-    elif center_x == 3.5:
+    elif center_x == x_interior_points[-1]:
         psi = torch.zeros_like(x)
         cond1 = (-1/4 < d) & (d <= 1/4)
         cond2 = (1/4 < d) & (d <= 3/4)
