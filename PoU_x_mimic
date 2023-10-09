@@ -38,13 +38,13 @@ len_interval = len_interval/num_points_i
 
 
 # Number of features locally
-num_features = 50 
+num_features = 10 
 
 # Number of features globally
 M = 10
 
 
-eps = 1e-11
+eps = 1e-5
 disturb = torch.zeros((num_features*num_points,1))
 disturb[1,0] = eps
 
@@ -466,45 +466,63 @@ for p in params:
 # with torch.no_grad():
 #     net.local_weights += disturb
 
-#print('local_weights:',net.local_weights)
+# #print('local_weights:',net.local_weights)
 
-u_global_test1 = torch.zeros(num_points_col,1)
-for idx in range(num_points_i_col-1):
-    u_global_test1[idx,0] = global_solution(x_interior_col[idx], net, radius)
+# u_global_test1 = torch.zeros(num_points_col,1)
+# for idx in range(num_points_i_col-1):
+#     u_global_test1[idx,0] = global_solution(x_interior_col[idx], net, radius)
 
-for isx in range(2):
-    u_global_test1[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+# for isx in range(2):
+#     u_global_test1[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
 
-loss1 = compute_loss(x_interior_col, x_boundary_col, u_global_test1, co_global_test)
+# loss1 = compute_loss(x_interior_col, x_boundary_col, u_global_test1, co_global_test)
 
-target = (loss1 - loss)/eps
+# with torch.no_grad():
+#     net.local_weights -= 2*disturb
 
-print('target:',target)
+# #print('local_weights:',net.local_weights)
+
+# u_global_test1 = torch.zeros(num_points_col,1)
+# for idx in range(num_points_i_col-1):
+#     u_global_test1[idx,0] = global_solution(x_interior_col[idx], net, radius)
+
+# for isx in range(2):
+#     u_global_test1[isx + num_points_i_col-1,0] = global_solution(x_boundary_col[isx], net, radius)
+
+# loss2 = compute_loss(x_interior_col, x_boundary_col, u_global_test1, co_global_test)
+
+# target = (loss1 + loss2 - 2*loss)/(eps**2)
+
+# print('target:',target)
 
 
-#grads = torch.autograd.grad(loss, net.parameters(), create_graph=True)
+# #grads = torch.autograd.grad(loss, net.parameters(), create_graph=True)
+# with torch.no_grad():
+#     net.local_weights += disturb
+
 
 grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
 
 
-hessian = torch.zeros((len(grad_params), len(grad_params)))
-for idx, g in enumerate(p.grad.view(-1)):
-    print(idx)
-    grad1 = torch.autograd.grad(loss, params, retain_graph=True, create_graph=True)[0]
-    # Compute the gradient of each gradient element with respect to the parameters
-    grad2 = torch.autograd.grad(g, p, retain_graph=True, create_graph=False)[0]
-    hessian[idx] = grad2.view(-1)
+# hessian = torch.zeros((len(grad_params), len(grad_params)))
+# for idx, g in enumerate(p.grad.view(-1)):
+#     print(idx)
+#     grad1 = torch.autograd.grad(loss, params, retain_graph=True, create_graph=True)[0]
+#     # Compute the gradient of each gradient element with respect to the parameters
+#     grad2 = torch.autograd.grad(g, p, retain_graph=True, create_graph=False)[0]
+#     hessian[idx] = grad2.view(-1)
 #print(net.local_weights[0,0])
 
 # Compute the Hessian-vector product for each parameter
-# hessian = torch.zeros((len(grad_params), len(grad_params)))
-# for i, g in enumerate(grad_params):
-#     print(i)
-#     hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
-#     hvp_cat = torch.cat([h.view(-1) for h in hvp])
-#     hessian[i] = hvp_cat
+hessian = torch.zeros((len(grad_params), len(grad_params)))
+for i, g in enumerate(grad_params):
+    print(i)
+    hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
+    hvp_cat = torch.cat([h.view(-1) for h in hvp])
+    hessian[i] = hvp_cat
 
 
+print('the first element:',hessian[1,1])
 print('hessian:',hessian)
 print('grad_params:',grad_params)
 
