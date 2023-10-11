@@ -7,6 +7,24 @@ import math
 from scipy.linalg import lstsq,pinv
 import matplotlib.pyplot as plt
 import random
+import torch.optim as optim
+import matplotlib
+matplotlib.use('TkAgg')
+import sympy as sp
+import scipy.optimize as sciopt
+import copy
+import time
+from scipy.linalg import solve as scipy_solve
+from scipy.optimize import minimize
+
+
+
+
+eps = 1e-5
+disturb = torch.zeros((200,1))
+disturb[1,0] = eps
+
+
 
 # fix random seed
 torch.set_default_dtype(torch.float64)
@@ -88,6 +106,65 @@ class RFM_rep(nn.Module):
             return(d1*y1+d2*y2+d3*y3)
             #return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
 
+class Connect(nn.Module):
+    def __init__(self, J_n, M_p):
+        super(Connect, self).__init__()
+        self.input = J_n * M_p
+        self.hidden_features = J_n # hidden features as the number of basis functions in every point
+        self.hidden_layer = nn.Linear(self.input, 1)
+
+
+    def forward(self,x): # x is the input where x is either Lu or u
+
+        y = self.hidden_layer(x) # y is the final solution of u or Lu
+
+        return y
+
+def cal_PDE(models,x,M_p,J_n,Q):
+    Lu = torch.tensor([])
+        
+    # forward and grad
+    for m in range(M_p):
+        out = models[m](x)
+        values = out.detach().numpy()
+        grads = []
+        grads_2 = []
+        for i in range(J_n):
+            g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = True, retain_graph = True)[0]
+            grads.append(g_1.squeeze().detach().numpy())
+            g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = False, retain_graph = True)[0]
+            grads_2.append(g_2.squeeze().detach().numpy())
+        grads = np.array(grads).T
+        grads_2 = np.array(grads_2).T
+        Lu = torch.cat((Lu,grads_2),dim=0)
+
+    return Lu  # as the input layer of PDE connection
+
+def cal_boundary(models,x,M_p,J_n,Q):
+    u = torch.tensor([])
+
+    # forward and grad
+    for m in range(M_p):
+        out = models[m](x)
+        values = out.detach().numpy()
+        u = torch.cat((u,values),dim=0)
+
+    return u  # as the input layer of boundary connection
+        
+def compute_loss(x_interior_col,x_boundary_col,models,M_p,J_n,Q):
+    Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
+    u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
+    output_PDE = Connect(Lu)
+    output_boundary = Connect(u)
+    target_PDE = Lu_f(x_interior_col)
+    target_boundary = anal_u(x_boundary_col)
+    loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
+    return loss
+
 # analytical solution parameters
 AA = 1
 aa = 2.0*np.pi
@@ -112,7 +189,6 @@ def Lu_f(pointss, lambda_ = 4):
         r.append(f)
     return(np.array(r))
 
-
 # define the local-networks and points in the corresponding regions
 def pre_define(M_p,J_n,Q):
     models = []
@@ -131,9 +207,6 @@ def pre_define(M_p,J_n,Q):
     #print('points:',points)
     #print('number of points:',len(points))
     return(models,points)
-
-
-
 
 # calculate the matrix A,f in linear equations system 'Au=f'
 def cal_matrix(models,points,M_p,J_n,Q):
@@ -176,7 +249,6 @@ def cal_matrix(models,points,M_p,J_n,Q):
     f[M_p*Q,:] = anal_u(0.)
     f[M_p*Q+1,:] = anal_u(8.)
     return(A,f)
-
 
 # calculate the l^{inf}-norm and l^{2}-norm error for u,v,p
 def test(models,M_p,J_n,Q,w,plot = True):
@@ -233,7 +305,6 @@ def test(models,M_p,J_n,Q,w,plot = True):
         #plt.savefig('./error_Ne=%sJ_n=%sQ=%s.pdf'%(M_p,J_n,Q), dpi=100)
     return(epsilon.max(),math.sqrt(8*sum(epsilon*epsilon)/len(epsilon)))
 
-
 def main(M_p,J_n,Q,plot = True, moore = False):
     # prepare models and collocation pointss
     models,points = pre_define(M_p,J_n,Q)
@@ -264,8 +335,6 @@ def main(M_p,J_n,Q,plot = True, moore = False):
     print('number of coefficient:',len(w))
     return(test(models,M_p,J_n,Q,w,plot))
 
-
-
 if __name__ == '__main__':
     set_seed(100)
     #M_p = 4 # the number of basis center points
@@ -273,3 +342,53 @@ if __name__ == '__main__':
     Q = 50 # the number of collocation pointss per basis functions support
     for M_p in [4]:
         main(M_p,J_n,Q,True,False)
+
+models,points = pre_define(M_p,J_n,Q)
+
+def closure():
+    optimizer.zero_grad()
+    loss = compute_loss(points, [0.,8.],models,M_p,J_n,Q)
+    #loss.backward(retain_graph=True)
+    loss.backward()
+    return loss.item()
+
+#optimizer = GradientDescentLineSearch(net.parameters())
+#optimizer = optim.Adam(net.parameters(), lr=0.01)
+optimizer = optim.LBFGS(Connect.parameters(),line_search_fn='strong_wolfe',lr=1)
+
+
+flag = 1
+epoch = 0
+# Training
+while flag == 1:
+    print('epoch:',epoch)
+
+
+
+    # This is for line search method
+    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # optimizer.zero_grad()
+    # total_loss.backward(retain_graph=True)
+    # optimizer.step(compute_loss, x_interior_col, x_boundary_col, u_global_test, co_global_test)
+
+    # This is for LBFGS method
+    print('start')
+    start_time = time.time()
+    optimizer.step(closure)
+    end_time = time.time()
+    print('end')
+    print('time:',end_time-start_time)
+    #params_list = list(net.parameters())
+
+
+    total_loss = compute_loss(points, [0.,8.],models,M_p,J_n,Q)
+    print('total_loss:',total_loss)
+
+    # This is for Adam
+    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # optimizer.zero_grad()
+    # total_loss.backward()
+    # optimizer.step()
+    
+
+    epoch += 1
