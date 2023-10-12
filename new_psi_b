@@ -121,7 +121,7 @@ class Connect(nn.Module):
         return y
 
 def cal_PDE(models,x,M_p,J_n,Q):
-    Lu = torch.tensor([])
+    Lu = np.array([])
         
     # forward and grad
     for m in range(M_p):
@@ -140,26 +140,36 @@ def cal_PDE(models,x,M_p,J_n,Q):
             grads_2.append(g_2.squeeze().detach().numpy())
         grads = np.array(grads).T
         grads_2 = np.array(grads_2).T
-        Lu = torch.cat((Lu,grads_2),dim=0)
+        if Lu.size == 0:
+            Lu = grads_2
+        else:
+            Lu = np.hstack((Lu,grads_2))
 
     return Lu  # as the input layer of PDE connection
 
 def cal_boundary(models,x,M_p,J_n,Q):
-    u = torch.tensor([])
+    u = np.array([])
 
     # forward and grad
     for m in range(M_p):
         out = models[m](x)
         values = out.detach().numpy()
-        u = torch.cat((u,values),dim=0)
+        #u = torch.cat((u,values),dim=0)
+        if u.size == 0:
+            u = values
+        else:
+            u = np.hstack((u,values))
 
     return u  # as the input layer of boundary connection
         
-def compute_loss(x_interior_col,x_boundary_col,models,M_p,J_n,Q):
+def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q):
     Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
+    Lu = torch.tensor(Lu,requires_grad=False)
+    #print('haha',1)
     u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
-    output_PDE = Connect(Lu)
-    output_boundary = Connect(u)
+    u = torch.tensor(u,requires_grad=False)
+    output_PDE = net(Lu)
+    output_boundary = net(u)
     target_PDE = Lu_f(x_interior_col)
     target_boundary = anal_u(x_boundary_col)
     loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
@@ -167,27 +177,27 @@ def compute_loss(x_interior_col,x_boundary_col,models,M_p,J_n,Q):
 
 # analytical solution parameters
 AA = 1
-aa = 2.0*np.pi
-bb = 3.0*np.pi
+aa = 2.0*torch.pi
+bb = 3.0*torch.pi
 interval_length = 8.
 lamb = 4
 
 def anal_u(x):
-    return AA * np.sin(bb * (x + 0.05)) * np.cos(aa * (x + 0.05)) + 2.0
+    return AA * torch.sin(bb * (x + 0.05)) * torch.cos(aa * (x + 0.05)) + 2.0
 
 def anal_dudx_1st(x):
-    return AA * (bb*np.cos(bb*(x+0.05))*np.cos(aa*(x+0.05)) - aa*np.sin(bb*(x+0.05))*np.sin(aa*(x+0.05)))
+    return AA * (bb*torch.cos(bb*(x+0.05))*torch.cos(aa*(x+0.05)) - aa*torch.sin(bb*(x+0.05))*torch.sin(aa*(x+0.05)))
 
 def anal_dudx_2nd(x):
-    return -AA*(aa*aa+bb*bb)*np.sin(bb*(x+0.05))*np.cos(aa*(x+0.05))\
-           -2.0*AA*aa*bb*np.cos(bb*(x+0.05))*np.sin(aa*(x+0.05))
+    return -AA*(aa*aa+bb*bb)*torch.sin(bb*(x+0.05))*torch.cos(aa*(x+0.05))\
+           -2.0*AA*aa*bb*torch.cos(bb*(x+0.05))*torch.sin(aa*(x+0.05))
 
 def Lu_f(pointss, lambda_ = 4):
-    r = []
+    r = torch.tensor([],requires_grad=False)
     for x in pointss:
         f = anal_dudx_2nd(x)
-        r.append(f)
-    return(np.array(r))
+        r = torch.cat((r,f),dim=0)
+    return(r)
 
 # define the local-networks and points in the corresponding regions
 def pre_define(M_p,J_n,Q):
@@ -207,6 +217,73 @@ def pre_define(M_p,J_n,Q):
     #print('points:',points)
     #print('number of points:',len(points))
     return(models,points)
+
+def closure():
+    optimizer.zero_grad()
+    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q)
+    #loss.backward(retain_graph=True)
+    loss.backward()
+    return loss.item()
+
+
+M_p = 4
+J_n = 50
+Q = 50
+
+models,points = pre_define(M_p,J_n,Q)
+
+points = torch.cat(points,dim=0) 
+points_boundary = torch.tensor([0.,8.]).view(-1,1)
+
+
+
+net = Connect(J_n,M_p)
+
+#optimizer = GradientDescentLineSearch(net.parameters())
+#optimizer = optim.Adam(net.parameters(), lr=0.01)
+optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
+
+
+flag = 1
+epoch = 0
+# Training
+while flag == 1:
+    print('epoch:',epoch)
+
+
+
+    # This is for line search method
+    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # optimizer.zero_grad()
+    # total_loss.backward(retain_graph=True)
+    # optimizer.step(compute_loss, x_interior_col, x_boundary_col, u_global_test, co_global_test)
+
+    # This is for LBFGS method
+    print('start')
+    start_time = time.time()
+    optimizer.step(closure)
+    end_time = time.time()
+    print('end')
+    print('time:',end_time-start_time)
+    #params_list = list(net.parameters())
+
+
+
+    total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q)
+    print('total_loss:',total_loss)
+
+    # This is for Adam
+    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # optimizer.zero_grad()
+    # total_loss.backward()
+    # optimizer.step()
+    
+
+    epoch += 1
+
+
+
+
 
 # calculate the matrix A,f in linear equations system 'Au=f'
 def cal_matrix(models,points,M_p,J_n,Q):
@@ -342,53 +419,3 @@ if __name__ == '__main__':
     Q = 50 # the number of collocation pointss per basis functions support
     for M_p in [4]:
         main(M_p,J_n,Q,True,False)
-
-models,points = pre_define(M_p,J_n,Q)
-
-def closure():
-    optimizer.zero_grad()
-    loss = compute_loss(points, [0.,8.],models,M_p,J_n,Q)
-    #loss.backward(retain_graph=True)
-    loss.backward()
-    return loss.item()
-
-#optimizer = GradientDescentLineSearch(net.parameters())
-#optimizer = optim.Adam(net.parameters(), lr=0.01)
-optimizer = optim.LBFGS(Connect.parameters(),line_search_fn='strong_wolfe',lr=1)
-
-
-flag = 1
-epoch = 0
-# Training
-while flag == 1:
-    print('epoch:',epoch)
-
-
-
-    # This is for line search method
-    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-    # optimizer.zero_grad()
-    # total_loss.backward(retain_graph=True)
-    # optimizer.step(compute_loss, x_interior_col, x_boundary_col, u_global_test, co_global_test)
-
-    # This is for LBFGS method
-    print('start')
-    start_time = time.time()
-    optimizer.step(closure)
-    end_time = time.time()
-    print('end')
-    print('time:',end_time-start_time)
-    #params_list = list(net.parameters())
-
-
-    total_loss = compute_loss(points, [0.,8.],models,M_p,J_n,Q)
-    print('total_loss:',total_loss)
-
-    # This is for Adam
-    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
-    # optimizer.zero_grad()
-    # total_loss.backward()
-    # optimizer.step()
-    
-
-    epoch += 1
