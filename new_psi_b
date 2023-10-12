@@ -111,7 +111,7 @@ class Connect(nn.Module):
         super(Connect, self).__init__()
         self.input = J_n * M_p
         self.hidden_features = J_n # hidden features as the number of basis functions in every point
-        self.hidden_layer = nn.Linear(self.input, 1)
+        self.hidden_layer = nn.Linear(self.input, 1, bias=False)
 
 
     def forward(self,x): # x is the input where x is either Lu or u
@@ -162,15 +162,15 @@ def cal_boundary(models,x,M_p,J_n,Q):
 
     return u  # as the input layer of boundary connection
         
-def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q):
-    Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
+def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u):
+    #Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
     Lu = torch.tensor(Lu,requires_grad=False)
     #print('haha',1)
-    u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
+    #u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
     u = torch.tensor(u,requires_grad=False)
     output_PDE = net(Lu)
     output_boundary = net(u)
-    target_PDE = Lu_f(x_interior_col)
+    target_PDE = Lu_f(x_interior_col).view(-1,1)
     target_boundary = anal_u(x_boundary_col)
     loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
     return loss
@@ -220,7 +220,7 @@ def pre_define(M_p,J_n,Q):
 
 def closure():
     optimizer.zero_grad()
-    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q)
+    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u)
     #loss.backward(retain_graph=True)
     loss.backward()
     return loss.item()
@@ -242,6 +242,63 @@ net = Connect(J_n,M_p)
 #optimizer = GradientDescentLineSearch(net.parameters())
 #optimizer = optim.Adam(net.parameters(), lr=0.01)
 optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
+
+# net.hidden_layer.weight.data = torch.zeros_like(net.hidden_layer.weight.data)
+
+
+# params = list(net.parameters())
+
+# for p in params:
+#     if p.grad is not None:
+#         p.grad.zero_()
+
+# for p in params:
+#     if p.grad is not None:
+#         print('current:',p.grad)
+
+
+# loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q)
+# # x_interior_col.requires_grad = False
+# # x_boundary_col.requires_grad = False
+# loss.backward(create_graph=True,retain_graph=True)
+
+# for p in params:
+#     if p.grad is not None:
+#         print('new:',p.grad)
+
+
+# grad_params = torch.cat([p.grad.view(-1) for p in params if p.grad is not None])
+
+# hessian = torch.zeros((len(grad_params), len(grad_params)))
+# for i, g in enumerate(grad_params):
+#     print(i)
+#     hvp = torch.autograd.grad(g, params, retain_graph=True, allow_unused=True, create_graph=False)
+#     hvp_cat = torch.cat([h.view(-1) for h in hvp])
+#     hessian[i] = hvp_cat
+
+
+# #print('the first element:',hessian[1,1])
+# print('hessian:',hessian)
+# print('grad_params:',grad_params)
+
+
+
+# numpy_matrix = hessian.numpy()
+# non_zero_count = np.count_nonzero(numpy_matrix)
+# print('check:',non_zero_count)
+# numpy_vector = grad_params.detach().numpy()
+
+# #result = np.linalg.solve(numpy_matrix, -numpy_vector)
+# result = lstsq(numpy_matrix, -numpy_vector)[0]
+# residue = lstsq(numpy_matrix, -numpy_vector)[1]
+# rank = lstsq(numpy_matrix, -numpy_vector)[2]
+
+
+# Error = np.dot(numpy_matrix,result) + numpy_vector
+
+# numpy_vector = numpy_vector + result
+Lu = cal_PDE(models,points,M_p,J_n,Q)
+u = cal_boundary(models,points_boundary,M_p,J_n,Q)
 
 
 flag = 1
@@ -265,12 +322,16 @@ while flag == 1:
     end_time = time.time()
     print('end')
     print('time:',end_time-start_time)
-    #params_list = list(net.parameters())
+
+    # net.hidden_layer.weight.data = torch.ones_like(net.hidden_layer.weight.data)
+    # for i in range(len(numpy_vector)):
+    #     net.hidden_layer.weight.data[0,i] = numpy_vector[i]
 
 
 
-    total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q)
+    total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q,Lu,u)
     print('total_loss:',total_loss)
+
 
     # This is for Adam
     # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
@@ -280,6 +341,24 @@ while flag == 1:
     
 
     epoch += 1
+
+    if epoch % 10 == 0:
+        Lu = cal_PDE(models,points,M_p,J_n,Q)
+        Lu = torch.tensor(Lu,requires_grad=False)
+        U =  net(Lu)
+        U = U.detach().numpy()
+        points_plot = points.detach().numpy()
+        plt.figure(int(epoch))
+        plt.plot(points_plot,U)
+        plt.title('Approximate Solution')
+        plt.xlabel('x')
+        plt.ylabel('y')  
+
+        plt.draw()  # Update the figure
+        plt.pause(5)  # Wait for 0.1 seconds
+        plt.close()  # Clear the figure for the next plot
+        
+        
 
 
 

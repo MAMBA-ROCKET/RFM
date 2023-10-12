@@ -254,6 +254,7 @@ def main(M_p,J_n,Q,plot = True, moore = False):
     else:
         w = lstsq(A,f)[0]
         res = (np.dot(A,w) - f)
+        print('residue2:',np.sum(res**2))
         print('residue:',np.max(np.abs(res)))
         #print('residue:',lstsq(A,f)[1])
     
