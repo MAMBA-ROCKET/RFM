@@ -35,6 +35,8 @@ def set_seed(x):
     torch.cuda.manual_seed_all(x)
     torch.backends.cudnn.deterministic = True
 
+set_seed(100)
+
 # random initialization for parameters in FC layer
 def weights_init(m):
     if isinstance(m, (nn.Conv2d, nn.Linear)):
@@ -230,9 +232,12 @@ M_p = 4
 J_n = 50
 Q = 50
 
-models,points = pre_define(M_p,J_n,Q)
+models,points1 = pre_define(M_p,J_n,Q)
 
-points = torch.cat(points,dim=0) 
+points1 = torch.cat(points1,dim=0)
+points = torch.linspace(0.,8.,201)[1:-1]
+points = points.view(-1,1)
+points.requires_grad = True
 points_boundary = torch.tensor([0.,8.]).view(-1,1)
 
 
@@ -240,8 +245,9 @@ points_boundary = torch.tensor([0.,8.]).view(-1,1)
 net = Connect(J_n,M_p)
 
 #optimizer = GradientDescentLineSearch(net.parameters())
-#optimizer = optim.Adam(net.parameters(), lr=0.01)
-optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
+optimizer = optim.Adam(net.parameters(), lr=0.1)
+# optimizer = optim.LBFGS(net.parameters(),lr=1)#line_search_fn='strong_wolfe',
+
 
 # net.hidden_layer.weight.data = torch.zeros_like(net.hidden_layer.weight.data)
 
@@ -298,7 +304,11 @@ optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
 
 # numpy_vector = numpy_vector + result
 Lu = cal_PDE(models,points,M_p,J_n,Q)
+Lu = torch.tensor(Lu,requires_grad=False)
 u = cal_boundary(models,points_boundary,M_p,J_n,Q)
+u = torch.tensor(u,requires_grad=False)
+
+points = torch.tensor(points,requires_grad=False)
 
 
 flag = 1
@@ -309,11 +319,19 @@ while flag == 1:
 
 
 
+    # This is for Adam
+    # total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q,Lu,u)
+    # optimizer.zero_grad()
+    # total_loss.backward()
+    # optimizer.step()
+
+
     # This is for line search method
-    # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q,Lu,u)
     # optimizer.zero_grad()
     # total_loss.backward(retain_graph=True)
-    # optimizer.step(compute_loss, x_interior_col, x_boundary_col, u_global_test, co_global_test)
+    # optimizer.step(compute_loss)
+
 
     # This is for LBFGS method
     print('start')
@@ -329,7 +347,7 @@ while flag == 1:
 
 
 
-    total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q,Lu,u)
+    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u)
     print('total_loss:',total_loss)
 
 
@@ -342,10 +360,11 @@ while flag == 1:
 
     epoch += 1
 
-    if epoch % 10 == 0:
-        Lu = cal_PDE(models,points,M_p,J_n,Q)
-        Lu = torch.tensor(Lu,requires_grad=False)
-        U =  net(Lu)
+    if epoch % 20000 == 0:
+        u_plot = cal_boundary(models,points,M_p,J_n,Q)
+        u_plot = torch.tensor(u_plot,requires_grad=False)
+
+        U =  net(u_plot)
         U = U.detach().numpy()
         points_plot = points.detach().numpy()
         plt.figure(int(epoch))
@@ -355,7 +374,7 @@ while flag == 1:
         plt.ylabel('y')  
 
         plt.draw()  # Update the figure
-        plt.pause(5)  # Wait for 0.1 seconds
+        plt.pause(2)  # Wait for 0.1 seconds
         plt.close()  # Clear the figure for the next plot
         
         
