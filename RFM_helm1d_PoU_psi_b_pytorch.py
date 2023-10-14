@@ -7,6 +7,7 @@ import math
 from scipy.linalg import lstsq,pinv
 import matplotlib.pyplot as plt
 import random
+import pandas as pd
 
 # fix random seed
 torch.set_default_dtype(torch.float64)
@@ -123,7 +124,7 @@ def pre_define(M_p,J_n,Q):
         x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
         model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
         model = model.apply(weights_init)
-        #model = model.double()
+        model = model.double()
         for param in model.parameters():
             param.requires_grad = False
         models.append(model)
@@ -241,8 +242,11 @@ def main(M_p,J_n,Q,plot = True, moore = False):
     
     # matrix define (Aw=b)
     A,f = cal_matrix(models,points,M_p,J_n,Q)
+    df = pd.DataFrame(A)
+    df.to_excel("Lu_author.xlsx", index=False, header=False, engine='openpyxl')
 
     hessian = np.matmul(A.T,A)
+    print('target value:',f)
     print('hessian',hessian)
 
     print('loss:',np.sum(f**2))
@@ -254,6 +258,7 @@ def main(M_p,J_n,Q,plot = True, moore = False):
     else:
         w = lstsq(A,f)[0]
         res = (np.dot(A,w) - f)
+        print(w)
         print('residue2:',np.sum(res**2))
         print('residue:',np.max(np.abs(res)))
         #print('residue:',lstsq(A,f)[1])

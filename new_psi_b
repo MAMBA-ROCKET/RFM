@@ -16,6 +16,8 @@ import copy
 import time
 from scipy.linalg import solve as scipy_solve
 from scipy.optimize import minimize
+import pandas as pd
+
 
 
 
@@ -182,7 +184,8 @@ def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u,lambda_
     output_boundary = net(u)
     target_PDE = Lu_f(x_interior_col).view(-1,1)
     target_boundary = anal_u(x_boundary_col)
-    loss = torch.sum((output_PDE - target_PDE)**2/lambda_i) + torch.sum((output_boundary - target_boundary)**2/lambda_o)
+    #loss_f = torch.sum((target_PDE)**2) + torch.sum((target_boundary)**2)
+    loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
     return loss
 
 # analytical solution parameters
@@ -218,7 +221,7 @@ def pre_define(M_p,J_n,Q):
         x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
         model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
         model = model.apply(weights_init)
-        #model = model.double()
+        model = model.double()
         for param in model.parameters():
             param.requires_grad = False
         models.append(model)
@@ -240,21 +243,22 @@ M_p = 4
 J_n = 50
 Q = 50
 
-models,points1 = pre_define(M_p,J_n,Q)
+models,points = pre_define(M_p,J_n,Q)
 
-points1 = torch.cat(points1,dim=0)
-points = torch.linspace(0.,8.,201)[1:-1]
+points = torch.cat(points,dim=0)
+points1 = torch.linspace(0.,8.,201)[1:-1]
 points = points.view(-1,1)
-points.requires_grad = True
+#points.requires_grad = True
 points_boundary = torch.tensor([0.,8.]).view(-1,1)
 
 
 
 net = Connect(J_n,M_p)
+net = net.double()
 
 #optimizer = GradientDescentLineSearch(net.parameters())
 #optimizer = optim.Adam(net.parameters(), lr=0.1)
-optimizer = optim.LBFGS(net.parameters(),tolerance_grad=1e-07, tolerance_change=1e-09,lr=1)#line_search_fn='strong_wolfe',
+optimizer = optim.LBFGS(net.parameters(),tolerance_grad=1e-11, tolerance_change=1e-13,lr=1)#line_search_fn='strong_wolfe',
 # discuss this
 
 # net.hidden_layer.weight.data = torch.zeros_like(net.hidden_layer.weight.data)
@@ -312,14 +316,19 @@ optimizer = optim.LBFGS(net.parameters(),tolerance_grad=1e-07, tolerance_change=
 
 # numpy_vector = numpy_vector + result
 Lu = cal_PDE(models,points,M_p,J_n,Q)
+df = pd.DataFrame(Lu)
+df.to_excel("Lu_mine.xlsx", index=False, header=False, engine='openpyxl')
 Lu = torch.tensor(Lu,requires_grad=False)
 u = cal_boundary(models,points_boundary,M_p,J_n,Q)
+df = pd.DataFrame(u)
+df.to_excel("u_mine.xlsx", index=False, header=False, engine='openpyxl')
 u = torch.tensor(u,requires_grad=False)
 
 lambda_i,lambda_o = scaling(Lu,u)
 lambda_i = lambda_i[0].view(-1,1)
+print(max(lambda_i))
 lambda_o = lambda_o[0].view(-1,1)
-
+print(max(lambda_o))
 points = torch.tensor(points,requires_grad=False)
 
 
@@ -331,6 +340,7 @@ while flag == 1:
 
 
 
+    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
     # This is for Adam
     # total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q,Lu,u)
     # optimizer.zero_grad()
@@ -362,6 +372,9 @@ while flag == 1:
     total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
     print('total_loss:',total_loss)
 
+    for param in net.parameters():
+        print('grad:',torch.max(torch.abs(param.grad)))
+
 
     # This is for Adam
     # total_loss = compute_loss(x_interior_col, x_boundary_col, u_global_test, co_global_test)
@@ -372,7 +385,7 @@ while flag == 1:
 
     epoch += 1
 
-    if epoch % 20000 == 0:
+    if epoch % 200 == 0:
         u_plot = cal_boundary(models,points,M_p,J_n,Q)
         u_plot = torch.tensor(u_plot,requires_grad=False)
 
@@ -390,7 +403,8 @@ while flag == 1:
         plt.close()  # Clear the figure for the next plot
         
         
-
+for name, param in net.named_parameters():
+    print(name, param.grad)
 
 
 
