@@ -163,8 +163,16 @@ def cal_boundary(models,x,M_p,J_n,Q):
             u = np.hstack((u,values))
 
     return u  # as the input layer of boundary connection
+
+
+def scaling(Lu,u):
+
+    lambda_i = torch.max(torch.abs(Lu),dim=1)
+    lambda_o = torch.max(torch.abs(u),dim=1)
+
+    return lambda_i,lambda_o
         
-def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u):
+def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o):
     #Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
     Lu = torch.tensor(Lu,requires_grad=False)
     #print('haha',1)
@@ -174,7 +182,7 @@ def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u):
     output_boundary = net(u)
     target_PDE = Lu_f(x_interior_col).view(-1,1)
     target_boundary = anal_u(x_boundary_col)
-    loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
+    loss = torch.sum((output_PDE - target_PDE)**2/lambda_i) + torch.sum((output_boundary - target_boundary)**2/lambda_o)
     return loss
 
 # analytical solution parameters
@@ -222,7 +230,7 @@ def pre_define(M_p,J_n,Q):
 
 def closure():
     optimizer.zero_grad()
-    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u)
+    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
     #loss.backward(retain_graph=True)
     loss.backward()
     return loss.item()
@@ -245,9 +253,9 @@ points_boundary = torch.tensor([0.,8.]).view(-1,1)
 net = Connect(J_n,M_p)
 
 #optimizer = GradientDescentLineSearch(net.parameters())
-optimizer = optim.Adam(net.parameters(), lr=0.1)
-# optimizer = optim.LBFGS(net.parameters(),lr=1)#line_search_fn='strong_wolfe',
-
+#optimizer = optim.Adam(net.parameters(), lr=0.1)
+optimizer = optim.LBFGS(net.parameters(),tolerance_grad=1e-07, tolerance_change=1e-09,lr=1)#line_search_fn='strong_wolfe',
+# discuss this
 
 # net.hidden_layer.weight.data = torch.zeros_like(net.hidden_layer.weight.data)
 
@@ -308,6 +316,10 @@ Lu = torch.tensor(Lu,requires_grad=False)
 u = cal_boundary(models,points_boundary,M_p,J_n,Q)
 u = torch.tensor(u,requires_grad=False)
 
+lambda_i,lambda_o = scaling(Lu,u)
+lambda_i = lambda_i[0].view(-1,1)
+lambda_o = lambda_o[0].view(-1,1)
+
 points = torch.tensor(points,requires_grad=False)
 
 
@@ -347,7 +359,7 @@ while flag == 1:
 
 
 
-    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u)
+    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
     print('total_loss:',total_loss)
 
 

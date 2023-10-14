@@ -259,7 +259,7 @@ def main(M_p,J_n,Q,plot = True, moore = False):
         #print('residue:',lstsq(A,f)[1])
     
     # test
-    w = np.ones_like(w)
+    # w = np.ones_like(w)
     # for i,res in enumerate(w):
     #     print(res)
     #     print(i)
