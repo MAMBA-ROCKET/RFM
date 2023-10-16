@@ -268,7 +268,7 @@ class GaussNewtonOptimizer:
         outputs = self.model(input)
         residuals = outputs - target
         # residuals = residuals.view(-1)
-        jacobian = torch.zeros((len(residuals), 200))
+        jacobian = torch.zeros((len(residuals), 400))
         for i, r in enumerate(residuals):
             grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
             temp = grad_params[0].view(-1)
@@ -276,14 +276,13 @@ class GaussNewtonOptimizer:
             jacobian[i,:] = temp
         # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
         # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
-        g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals
-
+        g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals   
         with torch.no_grad():
             for param in self.model.parameters():
                 param -= self.lr * g_n_update.T
 
 
-M_p = 4
+M_p = 8
 J_n = 50
 Q = 50
 
@@ -450,7 +449,7 @@ while flag == 1:
 
     epoch += 1
 
-    if epoch % 1 == 0:
+    if epoch % 10 == 0:
         u_plot = cal_boundary(models,points,M_p,J_n,Q)
         u_plot = torch.tensor(u_plot,requires_grad=False)
 
