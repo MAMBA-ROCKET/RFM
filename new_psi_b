@@ -268,7 +268,7 @@ class GaussNewtonOptimizer:
         outputs = self.model(input)
         residuals = outputs - target
         # residuals = residuals.view(-1)
-        jacobian = torch.zeros((len(residuals), 400))
+        jacobian = torch.zeros((len(residuals), 800))
         for i, r in enumerate(residuals):
             grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
             temp = grad_params[0].view(-1)
@@ -282,7 +282,7 @@ class GaussNewtonOptimizer:
                 param -= self.lr * g_n_update.T
 
 
-M_p = 8
+M_p = 16
 J_n = 50
 Q = 50
 
