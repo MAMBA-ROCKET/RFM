@@ -315,9 +315,9 @@ class GradientDescentLineSearch:
 
 
 
-#optimizer = GradientDescentLineSearch(net.parameters())
-#optimizer = optim.Adam(net.parameters(), lr=0.01)
-optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
+optimizer = GradientDescentLineSearch(net.parameters())
+# optimizer = optim.Adam(net.parameters(), lr=0.01)
+# optimizer = optim.LBFGS(net.parameters(),line_search_fn='strong_wolfe',lr=1)
 
 
 

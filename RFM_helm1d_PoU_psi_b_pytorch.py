@@ -140,9 +140,9 @@ def pre_define(M_p,J_n,Q):
 # calculate the matrix A,f in linear equations system 'Au=f'
 def cal_matrix(models,points,M_p,J_n,Q):
     # matrix define (Aw=b)
-    A_1 = np.zeros([M_p*Q,M_p*J_n])
+    A_1 = np.zeros([M_p*(Q+1),M_p*J_n])
     A_2 = np.zeros([2,M_p*J_n])
-    f = np.zeros([M_p*Q + 2, 1])
+    f = np.zeros([M_p*(Q+1) + 2, 1])
     
     for k in range(M_p):
         # forward and grad
@@ -165,7 +165,7 @@ def cal_matrix(models,points,M_p,J_n,Q):
             Lu = grads_2
             print(Lu.shape)
             # Lu = f condition
-            A_1[k*Q:(k + 1)*Q, m*J_n:(m + 1)*J_n] = Lu[:Q,:]
+            A_1[k*(Q+1):(k + 1)*(Q+1), m*J_n:(m + 1)*J_n] = Lu[:Q+1,:]
             # boundary condition
             if k == 0 and m==k:
                 A_2[0, :J_n] = values[0,:]
@@ -173,10 +173,10 @@ def cal_matrix(models,points,M_p,J_n,Q):
                 A_2[1, -J_n:] = values[-1,:]
                 
         true_f = Lu_f(points[k].detach().numpy(), lamb).reshape([(Q + 1),1])
-        f[k*Q:(k + 1)*Q,: ] = true_f[:Q]
+        f[k*(Q+1):(k + 1)*(Q+1),: ] = true_f[:Q+1]
     A = np.concatenate((A_1,A_2),axis=0)
-    f[M_p*Q,:] = anal_u(0.)
-    f[M_p*Q+1,:] = anal_u(8.)
+    f[M_p*(Q+1),:] = anal_u(0.)
+    f[M_p*(Q+1)+1,:] = anal_u(8.)
     return(A,f)
 
 

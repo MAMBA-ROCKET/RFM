@@ -128,26 +128,37 @@ def cal_PDE(models,x,M_p,J_n,Q):
     Lu = np.array([])
         
     # forward and grad
+    # for m in range(M_p):
+    #     out = models[m](x)
+    #     values = out.detach().numpy()
+    #     grads = []
+    #     grads_2 = []
+    #     for i in range(J_n):
+    #         g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
+    #                                 grad_outputs=torch.ones_like(out[:,i]),
+    #                                 create_graph = True, retain_graph = True)[0]
+    #         grads.append(g_1.squeeze().detach().numpy())
+    #         g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=x,
+    #                                 grad_outputs=torch.ones_like(out[:,i]),
+    #                                 create_graph = False, retain_graph = True)[0]
+    #         grads_2.append(g_2.squeeze().detach().numpy())
+    #     grads = np.array(grads).T
+    #     grads_2 = np.array(grads_2).T
+    #     if Lu.size == 0:
+    #         Lu = grads_2
+    #     else:
+    #         Lu = np.hstack((Lu,grads_2))
+        
     for m in range(M_p):
         out = models[m](x)
         values = out.detach().numpy()
-        grads = []
-        grads_2 = []
-        for i in range(J_n):
-            g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
-                                    grad_outputs=torch.ones_like(out[:,i]),
-                                    create_graph = True, retain_graph = True)[0]
-            grads.append(g_1.squeeze().detach().numpy())
-            g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=x,
-                                    grad_outputs=torch.ones_like(out[:,i]),
-                                    create_graph = False, retain_graph = True)[0]
-            grads_2.append(g_2.squeeze().detach().numpy())
-        grads = np.array(grads).T
-        grads_2 = np.array(grads_2).T
+        #u = torch.cat((u,values),dim=0)
         if Lu.size == 0:
-            Lu = grads_2
+            Lu = values
         else:
-            Lu = np.hstack((Lu,grads_2))
+            Lu = np.hstack((Lu,values))
+
+    
 
     return Lu  # as the input layer of PDE connection
 
@@ -177,15 +188,23 @@ def scaling(Lu,u):
 def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o):
     #Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
     Lu = torch.tensor(Lu,requires_grad=False)
+    Lu = Lu.double()
     #print('haha',1)
     #u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
     u = torch.tensor(u,requires_grad=False)
+    u = u.double()
+    input = torch.cat((Lu,u),dim=0)
     output_PDE = net(Lu)
     output_boundary = net(u)
+    output = torch.cat((output_PDE,output_boundary),dim=0)
     target_PDE = Lu_f(x_interior_col).view(-1,1)
+    target_PDE = target_PDE.double()
     target_boundary = anal_u(x_boundary_col)
-    #loss_f = torch.sum((target_PDE)**2) + torch.sum((target_boundary)**2)
-    loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
+    target_boundary = target_boundary.double()
+    target = torch.cat((target_PDE,target_boundary),dim=0)
+    # loss_f = torch.sum((target_PDE)**2) + torch.sum((target_boundary)**2)
+    # loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
+    loss = torch.sum((output - target)**2)
     return loss
 
 # analytical solution parameters
@@ -208,7 +227,8 @@ def anal_dudx_2nd(x):
 def Lu_f(pointss, lambda_ = 4):
     r = torch.tensor([],requires_grad=False)
     for x in pointss:
-        f = anal_dudx_2nd(x)
+        # f = anal_dudx_2nd(x)
+        f = anal_u(x)
         r = torch.cat((r,f),dim=0)
     return(r)
 
@@ -239,6 +259,30 @@ def closure():
     return loss.item()
 
 
+class GaussNewtonOptimizer:
+    def __init__(self, model, lr):
+        self.model = model
+        self.lr = lr
+
+    def step(self, input, target):
+        outputs = self.model(input)
+        residuals = outputs - target
+        # residuals = residuals.view(-1)
+        jacobian = torch.zeros((len(residuals), 200))
+        for i, r in enumerate(residuals):
+            grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
+            temp = grad_params[0].view(-1)
+            # jacobian[i,:] = torch.cat([g.view(-1) for g in grad_params])
+            jacobian[i,:] = temp
+        # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
+        # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
+        g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals
+
+        with torch.no_grad():
+            for param in self.model.parameters():
+                param -= self.lr * g_n_update.T
+
+
 M_p = 4
 J_n = 50
 Q = 50
@@ -254,12 +298,13 @@ points_boundary = torch.tensor([0.,8.]).view(-1,1)
 
 
 net = Connect(J_n,M_p)
-net = net.double()
+net.double()
 
 #optimizer = GradientDescentLineSearch(net.parameters())
 #optimizer = optim.Adam(net.parameters(), lr=0.1)
-optimizer = optim.LBFGS(net.parameters(),tolerance_grad=1e-11, tolerance_change=1e-13,lr=1)#line_search_fn='strong_wolfe',
-# discuss this
+# optimizer = optim.LBFGS(net.parameters(),max_iter=20,tolerance_grad=1e-15, tolerance_change=1e-16,lr=0.1,history_size=200)#line_search_fn='strong_wolfe',
+optimizer = GaussNewtonOptimizer(net,1)
+# torch.optim.LBFGS(params, lr=1, max_iter=20, max_eval=None, tolerance_grad=1e-07, tolerance_change=1e-09, history_size=100, line_search_fn=None)
 
 # net.hidden_layer.weight.data = torch.zeros_like(net.hidden_layer.weight.data)
 
@@ -332,6 +377,19 @@ print(max(lambda_o))
 points = torch.tensor(points,requires_grad=False)
 
 
+Lu = torch.tensor(Lu,requires_grad=False)
+Lu = Lu.double()
+u = torch.tensor(u,requires_grad=False)
+u = u.double()
+input = torch.cat((Lu,u),dim=0)
+target_PDE = Lu_f(points).view(-1,1)
+target_PDE = target_PDE.double()
+target_boundary = anal_u(points_boundary)
+target_boundary = target_boundary.double()
+target = torch.cat((target_PDE,target_boundary),dim=0)
+
+
+
 flag = 1
 epoch = 0
 # Training
@@ -341,6 +399,13 @@ while flag == 1:
 
 
     total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
+    # This is for Gauss-Newton
+    optimizer.step(input, target)
+    loss = torch.nn.functional.mse_loss(net(input), target)
+
+
+
+
     # This is for Adam
     # total_loss = compute_loss(points, points_boundary,models,net,M_p,J_n,Q,Lu,u)
     # optimizer.zero_grad()
@@ -356,12 +421,12 @@ while flag == 1:
 
 
     # This is for LBFGS method
-    print('start')
-    start_time = time.time()
-    optimizer.step(closure)
-    end_time = time.time()
-    print('end')
-    print('time:',end_time-start_time)
+    # print('start')
+    # start_time = time.time()
+    # optimizer.step(closure)
+    # end_time = time.time()
+    # print('end')
+    # print('time:',end_time-start_time)
 
     # net.hidden_layer.weight.data = torch.ones_like(net.hidden_layer.weight.data)
     # for i in range(len(numpy_vector)):
@@ -369,11 +434,11 @@ while flag == 1:
 
 
 
-    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
+    # total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
     print('total_loss:',total_loss)
 
-    for param in net.parameters():
-        print('grad:',torch.max(torch.abs(param.grad)))
+    # for param in net.parameters():
+    #     print('grad:',torch.max(torch.abs(param.grad)))
 
 
     # This is for Adam
@@ -385,7 +450,7 @@ while flag == 1:
 
     epoch += 1
 
-    if epoch % 200 == 0:
+    if epoch % 1 == 0:
         u_plot = cal_boundary(models,points,M_p,J_n,Q)
         u_plot = torch.tensor(u_plot,requires_grad=False)
 
@@ -399,7 +464,7 @@ while flag == 1:
         plt.ylabel('y')  
 
         plt.draw()  # Update the figure
-        plt.pause(2)  # Wait for 0.1 seconds
+        plt.pause(5)  # Wait for 0.1 seconds
         plt.close()  # Clear the figure for the next plot
         
         
