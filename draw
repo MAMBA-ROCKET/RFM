@@ -48,23 +48,24 @@ def unity_function(x, center_x, radius):
         return psi
     
 
-x = torch.linspace(0,1,100)
-center_x = 0.5
-radius = 0.2
-y = unity_function(x, center_x, radius)
-x = x.detach().numpy()
-y = y.detach().numpy()
-plt.plot(x,y)
+# x = torch.linspace(0,1,100)
+# center_x = 0.5
+# radius = 0.2
+# y = unity_function(x, center_x, radius)
+# x = x.detach().numpy()
+# y = y.detach().numpy()
+# plt.plot(x,y)
+# plt.show()
+
+plot_points = 1000+1
+x_plot = np.linspace(0, 8, plot_points)
+
+AA = 1
+aa = 2.0*np.pi
+bb = 3.0*np.pi
+U_analytic = AA * np.sin(bb * (x_plot + 0.05)) * np.cos(aa * (x_plot + 0.05)) + 2.0
+
+plt.plot(x_plot,U_analytic)
+plt.xlabel('x')
+plt.ylabel('y')
 plt.show()
-
-# plot_points = 1000+1
-# x_plot = np.linspace(0, 8, plot_points)
-
-# AA = 1
-# aa = 2.0*np.pi
-# bb = 3.0*np.pi
-# U_analytic = AA * np.sin(bb * (x_plot + 0.05)) * np.cos(aa * (x_plot + 0.05)) + 2.0
-
-# plt.plot(x_plot,U_analytic)
-# plt.xlabel('x')
-# plt.ylabel('y')
