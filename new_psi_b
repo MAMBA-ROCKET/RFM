@@ -128,35 +128,35 @@ def cal_PDE(models,x,M_p,J_n,Q):
     Lu = np.array([])
         
     # forward and grad
-    # for m in range(M_p):
-    #     out = models[m](x)
-    #     values = out.detach().numpy()
-    #     grads = []
-    #     grads_2 = []
-    #     for i in range(J_n):
-    #         g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
-    #                                 grad_outputs=torch.ones_like(out[:,i]),
-    #                                 create_graph = True, retain_graph = True)[0]
-    #         grads.append(g_1.squeeze().detach().numpy())
-    #         g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=x,
-    #                                 grad_outputs=torch.ones_like(out[:,i]),
-    #                                 create_graph = False, retain_graph = True)[0]
-    #         grads_2.append(g_2.squeeze().detach().numpy())
-    #     grads = np.array(grads).T
-    #     grads_2 = np.array(grads_2).T
-    #     if Lu.size == 0:
-    #         Lu = grads_2
-    #     else:
-    #         Lu = np.hstack((Lu,grads_2))
-        
     for m in range(M_p):
         out = models[m](x)
         values = out.detach().numpy()
-        #u = torch.cat((u,values),dim=0)
+        grads = []
+        grads_2 = []
+        for i in range(J_n):
+            g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = True, retain_graph = True)[0]
+            grads.append(g_1.squeeze().detach().numpy())
+            g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = False, retain_graph = True)[0]
+            grads_2.append(g_2.squeeze().detach().numpy())
+        grads = np.array(grads).T
+        grads_2 = np.array(grads_2).T
         if Lu.size == 0:
-            Lu = values
+            Lu = grads_2
         else:
-            Lu = np.hstack((Lu,values))
+            Lu = np.hstack((Lu,grads_2))
+        
+    # for m in range(M_p):
+    #     out = models[m](x)
+    #     values = out.detach().numpy()
+    #     #u = torch.cat((u,values),dim=0)
+    #     if Lu.size == 0:
+    #         Lu = values
+    #     else:
+    #         Lu = np.hstack((Lu,values))
 
     
 
@@ -227,8 +227,8 @@ def anal_dudx_2nd(x):
 def Lu_f(pointss, lambda_ = 4):
     r = torch.tensor([],requires_grad=False)
     for x in pointss:
-        # f = anal_dudx_2nd(x)
-        f = anal_u(x)
+        f = anal_dudx_2nd(x)
+        # f = anal_u(x)
         r = torch.cat((r,f),dim=0)
     return(r)
 
@@ -268,7 +268,7 @@ class GaussNewtonOptimizer:
         outputs = self.model(input)
         residuals = outputs - target
         # residuals = residuals.view(-1)
-        jacobian = torch.zeros((len(residuals), 800))
+        jacobian = torch.zeros((len(residuals), M_p*J_n))
         for i, r in enumerate(residuals):
             grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
             temp = grad_params[0].view(-1)
@@ -282,7 +282,7 @@ class GaussNewtonOptimizer:
                 param -= self.lr * g_n_update.T
 
 
-M_p = 16
+M_p = 8
 J_n = 50
 Q = 50
 
@@ -470,11 +470,6 @@ while flag == 1:
         plt.pause(5)  # Wait for 0.1 seconds
         plt.close()  # Clear the figure for the next plot
         
-        
-for name, param in net.named_parameters():
-    print(name, param.grad)
-
-
 
 
 # calculate the matrix A,f in linear equations system 'Au=f'
