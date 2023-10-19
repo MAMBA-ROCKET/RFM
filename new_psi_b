@@ -145,9 +145,9 @@ def cal_PDE(models,x,M_p,J_n,Q):
         grads = np.array(grads).T
         grads_2 = np.array(grads_2).T
         if Lu.size == 0:
-            Lu = grads_2
+            Lu = grads_2 + 4 * values
         else:
-            Lu = np.hstack((Lu,grads_2))
+            Lu = np.hstack((Lu,grads_2+4*values))
         
     # for m in range(M_p):
     #     out = models[m](x)
@@ -227,7 +227,7 @@ def anal_dudx_2nd(x):
 def Lu_f(pointss, lambda_ = 4):
     r = torch.tensor([],requires_grad=False)
     for x in pointss:
-        f = anal_dudx_2nd(x)
+        f = anal_dudx_2nd(x) + lambda_ * anal_u(x)
         # f = anal_u(x)
         r = torch.cat((r,f),dim=0)
     return(r)
