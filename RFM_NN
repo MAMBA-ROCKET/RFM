@@ -1,0 +1,349 @@
+import numpy as np
+import torch
+import torch.nn as nn
+import math
+from scipy.linalg import lstsq,pinv
+import matplotlib.pyplot as plt
+import random
+import torch.optim as optim
+import matplotlib
+matplotlib.use('TkAgg')
+import sympy as sp
+import scipy.optimize as sciopt
+import copy
+import time
+from scipy.linalg import solve as scipy_solve
+from scipy.optimize import minimize
+import pandas as pd
+
+
+# fix random seed
+torch.set_default_dtype(torch.float64)
+def set_seed(x):
+    random.seed(x)
+    np.random.seed(x)
+    torch.manual_seed(x)
+    torch.cuda.manual_seed_all(x)
+    torch.backends.cudnn.deterministic = True
+
+set_seed(100)
+
+# random initialization for parameters in FC layer
+def weights_init(m):
+    if isinstance(m, (nn.Conv2d, nn.Linear)):
+        nn.init.uniform_(m.weight, a = -8, b = 8)
+        nn.init.uniform_(m.bias, a = -8, b = 8)
+        #nn.init.normal_(m.weight, mean=0, std=1)
+        #nn.init.normal_(m.bias, mean=0, std=1)
+
+# network definition
+class RFM_rep(nn.Module):
+    def __init__(self, in_features, J_n, x_max, x_min):
+        super(RFM_rep, self).__init__()
+        self.in_features = in_features
+        self.hidden_features = J_n # hidden features as the number of basis functions in every point
+        self.J_n = J_n
+        self.x_min = x_min
+        self.x_max = x_max
+        self.a = 2.0/(x_max - x_min) # 1/radius
+        self.x_0 = (x_max + x_min)/2 # center point
+        self.hidden_layer = nn.Sequential(nn.Linear(self.in_features, self.hidden_features, bias=True),nn.Tanh()) 
+        
+
+    def forward(self,x):
+        d = (x - self.x_min) / (self.x_max - self.x_min)
+        d0 = (d <= -1/4)
+        d1 = (d <= 1/4)  & (d > -1/4)
+        d2 = (d <= 3/4)  & (d > 1/4)
+        d3 = (d <= 5/4)  & (d > 3/4)
+        d4 = (d > 5/4)
+        y = self.a * (x - self.x_0)  # here y is the input of hidden layer, as the x variable
+        y = self.hidden_layer(y) # The left hand side y is the local approximation of every point 
+        y0 = 0
+        y1 = y * (1 + torch.sin(2*np.pi*d) ) / 2
+        y2 = y
+        y3 = y * (1 - torch.sin(2*np.pi*d) ) / 2
+        y4 = 0
+        if self.x_min == 0:
+            return((d1+d2)*y2+d3*y3)
+            #return(d0*y0+(d1+d2)*y2+d3*y3+d4*y4)
+        elif self.x_max == interval_length:
+            return(d1*y1+(d2+d3)*y2)
+            #return(d0*y0+d1*y1+(d2+d3)*y2+d4*y4)
+        else:
+            return(d1*y1+d2*y2+d3*y3)
+            #return(d0*y0+d1*y1+d2*y2+d3*y3+d4*y4)
+
+class Connect(nn.Module):
+    def __init__(self, J_n, M_p):
+        super(Connect, self).__init__()
+        self.input = J_n * M_p
+        self.hidden_features = J_n # hidden features as the number of basis functions in every point
+        self.hidden_layer = nn.Linear(self.input, 1, bias=False)
+
+
+    def forward(self,x): # x is the input where x is either Lu or u
+
+        y = self.hidden_layer(x) # y is the final solution of u or Lu
+
+        return y
+
+def cal_PDE(models,x,M_p,J_n,Q):
+    Lu = np.array([])
+        
+    # forward and grad
+    for m in range(M_p):
+        out = models[m](x)
+        values = out.detach().numpy()
+        grads = []
+        grads_2 = []
+        for i in range(J_n):
+            g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = True, retain_graph = True)[0]
+            grads.append(g_1.squeeze().detach().numpy())
+            g_2 = torch.autograd.grad(outputs=g_1[:,0], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = False, retain_graph = True)[0]
+            grads_2.append(g_2.squeeze().detach().numpy())
+        grads = np.array(grads).T
+        grads_2 = np.array(grads_2).T
+        if Lu.size == 0:
+            Lu = grads_2 - 4 * values
+        else:
+            Lu = np.hstack((Lu,grads_2-4*values))
+        
+    # for m in range(M_p):
+    #     out = models[m](x)
+    #     values = out.detach().numpy()
+    #     #u = torch.cat((u,values),dim=0)
+    #     if Lu.size == 0:
+    #         Lu = values
+    #     else:
+    #         Lu = np.hstack((Lu,values))
+
+    
+
+    return Lu  # as the input layer of PDE connection
+
+def cal_boundary(models,x,M_p,J_n,Q):
+    u = np.array([])
+
+    # forward and grad
+    for m in range(M_p):
+        out = models[m](x)
+        values = out.detach().numpy()
+        #u = torch.cat((u,values),dim=0)
+        if u.size == 0:
+            u = values
+        else:
+            u = np.hstack((u,values))
+
+    return u  # as the input layer of boundary connection
+
+
+def scaling(Lu,u):
+
+    lambda_i = torch.max(torch.abs(Lu),dim=1)
+    lambda_o = torch.max(torch.abs(u),dim=1)
+
+    return lambda_i,lambda_o
+        
+def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o):
+    #Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
+    Lu = torch.tensor(Lu,requires_grad=False)
+    Lu = Lu.double()
+    #print('haha',1)
+    #u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
+    u = torch.tensor(u,requires_grad=False)
+    u = u.double()
+    input = torch.cat((Lu,u),dim=0)
+    output_PDE = net(Lu)
+    output_boundary = net(u)
+    output = torch.cat((output_PDE,output_boundary),dim=0)
+    target_PDE = Lu_f(x_interior_col).view(-1,1)
+    target_PDE = target_PDE.double()
+    target_boundary = anal_u(x_boundary_col)
+    target_boundary = target_boundary.double()
+    target = torch.cat((target_PDE,target_boundary),dim=0)
+    # loss_f = torch.sum((target_PDE)**2) + torch.sum((target_boundary)**2)
+    # loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
+    loss = torch.sum((output - target)**2)
+    return loss
+
+# analytical solution parameters
+AA = 1
+aa = 2.0*torch.pi
+bb = 3.0*torch.pi
+interval_length = 8.
+lamb = 4
+
+# def anal_u(x):
+#     return AA * torch.sin(bb * (x + 0.05)) * torch.cos(aa * (x + 0.05)) + 2.0
+
+# def anal_dudx_1st(x):
+#     return AA * (bb*torch.cos(bb*(x+0.05))*torch.cos(aa*(x+0.05)) - aa*torch.sin(bb*(x+0.05))*torch.sin(aa*(x+0.05)))
+
+# def anal_dudx_2nd(x):
+#     return -AA*(aa*aa+bb*bb)*torch.sin(bb*(x+0.05))*torch.cos(aa*(x+0.05))\
+#            -2.0*AA*aa*bb*torch.cos(bb*(x+0.05))*torch.sin(aa*(x+0.05))
+
+a = np.sqrt(5)
+b = np.sqrt(3)
+def anal_u(x):
+    return 4*torch.cos(4 * (x + 3/20)) + 5*torch.sin(a * (x + 7/20)) + 2*torch.sin(b * (x + 1/20))\
+          + 3*torch.sin((x + 17/20)) + 2.0
+
+
+def anal_dudx_2nd(x):
+    return -64.*torch.cos(4. * (x + 3/20)) - 25.*torch.sin(a * (x + 7/20)) - 6.*torch.sin(b * (x + 1/20))\
+          - 3.*torch.sin((x + 17/20))
+
+def Lu_f(pointss, lambda_ = 4):
+    r = torch.tensor([],requires_grad=False)
+    for x in pointss:
+        f = anal_dudx_2nd(x) - lambda_ * anal_u(x)
+        # f = anal_u(x)
+        r = torch.cat((r,f),dim=0)
+    return(r)
+
+# define the local-networks and points in the corresponding regions
+def pre_define(M_p,J_n,Q):
+    models = []
+    points = []
+    for k in range(M_p):
+        x_min = 8.0/M_p * k
+        x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
+        model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
+        model = model.apply(weights_init)
+        model = model.double()
+        for param in model.parameters():
+            param.requires_grad = False
+        models.append(model)
+        points.append(torch.tensor(np.linspace(x_min, x_max, Q+1),requires_grad=True).reshape([-1,1]))
+        # Every interval has Q+1 points, and the first and last point are the boundary points
+    #print('points:',points)
+    #print('number of points:',len(points))
+    return(models,points)
+
+def closure():
+    optimizer.zero_grad()
+    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
+    #loss.backward(retain_graph=True)
+    loss.backward()
+    return loss.item()
+
+
+class GaussNewtonOptimizer:
+    def __init__(self, model, lr):
+        self.model = model
+        self.lr = lr
+
+    def step(self, input, target):
+        outputs = self.model(input)
+        residuals = outputs - target
+        # residuals = residuals.view(-1)
+        jacobian = torch.zeros((len(residuals), M_p*J_n))
+        for i, r in enumerate(residuals):
+            grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
+            temp = grad_params[0].view(-1)
+            # jacobian[i,:] = torch.cat([g.view(-1) for g in grad_params])
+            jacobian[i,:] = temp
+        # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
+        # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
+        g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals   
+        with torch.no_grad():
+            for param in self.model.parameters():
+                param -= self.lr * g_n_update.T
+
+
+M_p = 4
+J_n = 100
+Q = 100
+
+models,points = pre_define(M_p,J_n,Q)
+
+points = torch.cat(points,dim=0)
+points1 = torch.linspace(0.,8.,201)[1:-1]
+points = points.view(-1,1)
+#points.requires_grad = True
+points_boundary = torch.tensor([0.,8.]).view(-1,1)
+
+
+
+net = Connect(J_n,M_p)
+net.double()
+
+
+optimizer = GaussNewtonOptimizer(net,1)
+
+Lu = cal_PDE(models,points,M_p,J_n,Q)
+df = pd.DataFrame(Lu)
+df.to_excel("Lu_mine.xlsx", index=False, header=False, engine='openpyxl')
+Lu = torch.tensor(Lu,requires_grad=False)
+u = cal_boundary(models,points_boundary,M_p,J_n,Q)
+df = pd.DataFrame(u)
+df.to_excel("u_mine.xlsx", index=False, header=False, engine='openpyxl')
+u = torch.tensor(u,requires_grad=False)
+
+lambda_i,lambda_o = scaling(Lu,u)
+lambda_i = lambda_i[0].view(-1,1)
+print(max(lambda_i))
+lambda_o = lambda_o[0].view(-1,1)
+print(max(lambda_o))
+points = torch.tensor(points,requires_grad=False)
+
+
+Lu = torch.tensor(Lu,requires_grad=False)
+Lu = Lu.double()
+u = torch.tensor(u,requires_grad=False)
+u = u.double()
+input = torch.cat((Lu,u),dim=0)
+target_PDE = Lu_f(points).view(-1,1)
+target_PDE = target_PDE.double()
+target_boundary = anal_u(points_boundary)
+target_boundary = target_boundary.double()
+target = torch.cat((target_PDE,target_boundary),dim=0)
+
+
+
+flag = 1
+epoch = 0
+# Training
+while flag == 1:
+
+    print('epoch:',epoch)
+
+
+
+    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
+    # This is for Gauss-Newton
+    optimizer.step(input, target)
+    loss = torch.nn.functional.mse_loss(net(input), target)
+
+    print('total_loss:',total_loss)
+    
+
+    epoch += 1
+
+    if epoch % 10 == 0:
+        u_plot = cal_boundary(models,points,M_p,J_n,Q)
+        u_plot = torch.tensor(u_plot,requires_grad=False)
+
+        U = net(u_plot)
+        U = U.detach().numpy()
+        points_plot = points.detach().numpy()
+        U_true = anal_u(points)
+        U_true = U_true.detach().numpy()
+        Error = np.abs(U - U_true)
+        Errormax = np.max(Error)
+        print('Errormax:',Errormax)
+        plt.figure(int(epoch))
+        plt.plot(points_plot,U)
+        plt.title('Approximate Solution')
+        plt.xlabel('x')
+        plt.ylabel('y')  
+
+        plt.draw()  # Update the figure
+        plt.pause(5)  # Wait for 0.1 seconds
+        plt.close()  # Clear the figure for the next plot
