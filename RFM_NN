@@ -257,7 +257,7 @@ class GaussNewtonOptimizer:
                 param -= self.lr * g_n_update.T
 
 
-M_p = 4
+M_p = 16
 J_n = 100
 Q = 100
 
