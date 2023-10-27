@@ -93,17 +93,17 @@ class Connect(nn.Module):
             return u_output1*a_output1 + u_output2*a_output2
         
         if cr == 2:  # u connection at data points
-            u_output = self.hidden_layer1(input[5*M_p*(Q+1):5*M_p*(Q+1)+8,:])
+            u_output = self.hidden_layer1(input[5*M_p*(Q+1):5*M_p*(Q+1)+len(u_data),:])
         
             return u_output
         
         if cr == 3:  # u connection at boundary points
-            u_output = self.hidden_layer1(input[5*M_p*(Q+1)+8:5*M_p*(Q+1)+10,:])
+            u_output = self.hidden_layer1(input[5*M_p*(Q+1)+len(u_data):5*M_p*(Q+1)+len(u_data)+2,:])
         
             return u_output
         
         if cr == 4:  # a connection at boundary points
-            a_output = self.hidden_layer2(input[5*M_p*(Q+1)+8:5*M_p*(Q+1)+10,:])
+            a_output = self.hidden_layer2(input[5*M_p*(Q+1)+len(u_data):5*M_p*(Q+1)+len(u_data)+2,:])
         
             return a_output
         
@@ -232,7 +232,7 @@ def anal_dadx_1st(x):
     return 2*x
 
 
-x_data = torch.linspace(0.,1.,10)[1:-1]
+x_data = torch.linspace(0.,1.,1000)[1:-1]
 x_data = x_data.view(-1,1)
 y_data = anal_u(x_data)
 
@@ -270,6 +270,7 @@ def closure():
     return loss.item()
 
 
+
 class GaussNewtonOptimizer:
     def __init__(self, model, lr):
         self.model = model
@@ -297,6 +298,71 @@ class GaussNewtonOptimizer:
             for k,param in enumerate(self.model.parameters()):
                 print(k)
                 param -= self.lr * g_n_update[k*M_p*J_n:(k+1)*M_p*J_n,0].T
+
+
+# class GaussNewtonOptimizer:
+#     def __init__(self, model, lr, beta=0.01, rho=0.5):
+#         self.model = model
+#         self.lr = lr
+#         self.beta = beta
+#         self.rho = rho
+
+#     def step(self, input, target):
+#         outputs_PDE = self.model(input,cr=1)
+#         outputs_boundary = self.model(input,cr=3)
+#         outputs_data = self.model(input,cr=2)
+#         outputs = torch.cat((outputs_PDE,outputs_boundary,outputs_data),dim=0)
+#         residuals = outputs - target
+#         # residuals = residuals.view(-1)
+#         jacobian = torch.zeros((len(residuals), 2*M_p*J_n))
+#         loss = torch.sum(residuals ** 2)
+#         J = torch.autograd.grad(loss, self.model.parameters(), create_graph=True)
+#         J = torch.cat([g.view(-1) for g in J])
+#         for i, r in enumerate(residuals):
+#             grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
+#             temp1 = grad_params[0].view(-1)
+#             temp2 = grad_params[1].view(-1)
+#             temp = torch.cat((temp1,temp2),dim=0)
+#             # jacobian[i,:] = torch.cat([g.view(-1) for g in grad_params])
+#             jacobian[i,:] = temp
+#         # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
+#         # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
+#         g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals   
+#         with torch.no_grad():
+#             for k,param in enumerate(self.model.parameters()):
+#                 print(k)
+#                 param -= self.lr * g_n_update[k*M_p*J_n:(k+1)*M_p*J_n,0].T
+#                 alpha = 1.0
+#         with torch.no_grad():
+#             old_loss = (outputs - target).pow(2).sum()  # 计算原先的损失
+#             temp_params = [param.clone() for param in self.model.parameters()]  # 保存原先的参数
+#             while True:
+#                 new_params = []
+#                 for k, param in enumerate(self.model.parameters()):
+#                     new_param = param - alpha * self.lr * g_n_update[k*M_p*J_n:(k+1)*M_p*J_n,0].T
+#                     new_params.append(new_param)
+#                 for param, new_param in zip(self.model.parameters(), new_params):
+#                     param.data.copy_(new_param)
+                
+#                 # 计算新的损失
+#                 outputs_PDE = self.model(input, cr=1)
+#                 outputs_boundary = self.model(input, cr=3)
+#                 outputs_data = self.model(input, cr=2)
+#                 new_outputs = torch.cat((outputs_PDE, outputs_boundary, outputs_data), dim=0)
+#                 new_loss = (new_outputs - target).pow(2).sum()
+
+#                 print(g_n_update.T @ J)
+#                 print(alpha)
+
+#                 if new_loss < old_loss - self.beta * alpha * g_n_update.T @ J:
+#                     break
+                
+#                 alpha *= self.rho  # 缩小步长
+#                 params = temp_params
+
+#             # 更新参数
+#             for param, new_param in zip(self.model.parameters(), new_params):
+#                 param.data.copy_(new_param)
 
 
 
@@ -362,6 +428,7 @@ a_input2 = La_1st
 u_data = cal_boundary(models_u,x_data,M_p,J_n,Q)
 u_data = torch.tensor(u_data,requires_grad=False)
 u_data = u_data.double()
+
 
 u_boundary = cal_boundary(models_u,points_boundary,M_p,J_n,Q)
 u_boundary = torch.tensor(u_boundary,requires_grad=False)
