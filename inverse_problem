@@ -470,23 +470,23 @@ while flag == 1:
     if epoch % 10 == 0:
 
 
-        # U = net(input,cr=5)
-        # U = U.detach().numpy()
-        # points_plot = points.detach().numpy()
-        # U_true = anal_u(points)
-        # U_true = U_true.detach().numpy()
-        # Error = np.abs(U - U_true)
-        # Errormax = np.max(Error)
-        # print('Errormax:',Errormax)
-        # plt.figure(int(epoch))
-        # plt.plot(points_plot,U)
-        # plt.title('Approximate Solution')
-        # plt.xlabel('x')
-        # plt.ylabel('y')  
+        U = net(input,cr=5)
+        U = U.detach().numpy()
+        points_plot = points.detach().numpy()
+        U_true = anal_u(points)
+        U_true = U_true.detach().numpy()
+        Error = np.abs(U - U_true)
+        Errormax = np.max(Error)
+        print('Errormax:',Errormax)
+        plt.figure(int(epoch))
+        plt.plot(points_plot,U)
+        plt.title('Approximate Solution')
+        plt.xlabel('x')
+        plt.ylabel('y')  
 
-        # plt.draw()  # Update the figure
-        # plt.pause(5)  # Wait for 0.1 seconds
-        # plt.close()  # Clear the figure for the next plot
+        plt.draw()  # Update the figure
+        plt.pause(5)  # Wait for 0.1 seconds
+        plt.close()  # Clear the figure for the next plot
 
         a = net(input,cr=6)
         a = a.detach().numpy()
