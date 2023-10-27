@@ -79,17 +79,69 @@ class Connect(nn.Module):
         super(Connect, self).__init__()
         self.input = J_n * M_p
         self.hidden_features = J_n # hidden features as the number of basis functions in every point
-        self.hidden_layer = nn.Linear(self.input, 1, bias=False)
+        self.hidden_layer1 = nn.Linear(self.input, 1, bias=False)
+        self.hidden_layer2 = nn.Linear(self.input, 1, bias=False)
 
 
-    def forward(self,x): # x is the input where x is either Lu or u
+    def forward(self,input,cr=1):
+        if cr == 1:  # PDE connection
+            u_output1 = self.hidden_layer1(input[0:M_p*(Q+1),:]) 
+            a_output1 = self.hidden_layer2(input[2*M_p*(Q+1):3*M_p*(Q+1),:])
+            u_output2 = self.hidden_layer1(input[M_p*(Q+1):2*M_p*(Q+1),:])
+            a_output2 = self.hidden_layer2(input[3*M_p*(Q+1):4*M_p*(Q+1),:])
 
-        y = self.hidden_layer(x) # y is the final solution of u or Lu
+            return u_output1*a_output1 + u_output2*a_output2
+        
+        if cr == 2:  # u connection at data points
+            u_output = self.hidden_layer1(input[5*M_p*(Q+1):5*M_p*(Q+1)+8,:])
+        
+            return u_output
+        
+        if cr == 3:  # u connection at boundary points
+            u_output = self.hidden_layer1(input[5*M_p*(Q+1)+8:5*M_p*(Q+1)+10,:])
+        
+            return u_output
+        
+        if cr == 4:  # a connection at boundary points
+            a_output = self.hidden_layer2(input[5*M_p*(Q+1)+8:5*M_p*(Q+1)+10,:])
+        
+            return a_output
+        
+        if cr == 5:  # u connection at collocation points
+            u_output = self.hidden_layer1(input[4*M_p*(Q+1):5*M_p*(Q+1),:])
 
-        return y
+            return u_output
+        
+        if cr == 6:  # a connection at collocation points
+            a_output = self.hidden_layer2(input[4*M_p*(Q+1):5*M_p*(Q+1),:])
 
-def cal_PDE(models,x,M_p,J_n,Q):
-    Lu = np.array([])
+            return a_output
+        
+
+def cal_PDE_1st(models,x,M_p,J_n,Q):
+    L = np.array([])
+        
+    # forward and grad
+    for m in range(M_p):
+        out = models[m](x)
+        values = out.detach().numpy()
+        grads = []
+        grads_2 = []
+        for i in range(J_n):
+            g_1 = torch.autograd.grad(outputs=out[:,i], inputs=x,
+                                    grad_outputs=torch.ones_like(out[:,i]),
+                                    create_graph = False, retain_graph = True)[0]
+            grads.append(g_1.squeeze().detach().numpy())
+        grads = np.array(grads).T
+        if L.size == 0:
+            L = grads
+        else:
+            L = np.hstack((L,grads))  
+
+    return L  # as the input layer of PDE connection
+
+def cal_PDE_2nd(models,x,M_p,J_n,Q):
+    L = np.array([])
         
     # forward and grad
     for m in range(M_p):
@@ -108,38 +160,26 @@ def cal_PDE(models,x,M_p,J_n,Q):
             grads_2.append(g_2.squeeze().detach().numpy())
         grads = np.array(grads).T
         grads_2 = np.array(grads_2).T
-        if Lu.size == 0:
-            Lu = grads_2 - 4 * values
+        if L.size == 0:
+            L = grads_2
         else:
-            Lu = np.hstack((Lu,grads_2-4*values))
-        
-    # for m in range(M_p):
-    #     out = models[m](x)
-    #     values = out.detach().numpy()
-    #     #u = torch.cat((u,values),dim=0)
-    #     if Lu.size == 0:
-    #         Lu = values
-    #     else:
-    #         Lu = np.hstack((Lu,values))
+            L = np.hstack((L,grads_2))  
 
-    
-
-    return Lu  # as the input layer of PDE connection
+    return L  # as the input layer of PDE connection
 
 def cal_boundary(models,x,M_p,J_n,Q):
-    u = np.array([])
+    y = np.array([])
 
     # forward and grad
     for m in range(M_p):
         out = models[m](x)
         values = out.detach().numpy()
-        #u = torch.cat((u,values),dim=0)
-        if u.size == 0:
-            u = values
+        if y.size == 0:
+            y = values
         else:
-            u = np.hstack((u,values))
+            y = np.hstack((y,values))
 
-    return u  # as the input layer of boundary connection
+    return y  # as the input layer of boundary connection
 
 
 def scaling(Lu,u):
@@ -149,61 +189,57 @@ def scaling(Lu,u):
 
     return lambda_i,lambda_o
         
-def compute_loss(x_interior_col,x_boundary_col,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o):
-    #Lu = cal_PDE(models,x_interior_col,M_p,J_n,Q)
-    Lu = torch.tensor(Lu,requires_grad=False)
-    Lu = Lu.double()
-    #print('haha',1)
-    #u = cal_boundary(models,x_boundary_col,M_p,J_n,Q)
-    u = torch.tensor(u,requires_grad=False)
-    u = u.double()
-    input = torch.cat((Lu,u),dim=0)
-    output_PDE = net(Lu)
-    output_boundary = net(u)
-    output = torch.cat((output_PDE,output_boundary),dim=0)
-    target_PDE = Lu_f(x_interior_col).view(-1,1)
+def compute_loss(x_interior_col,x_boundary_col,net,y_data,input):
+    output_PDE = net(input,cr=1)
+    target_PDE = L_f(x_interior_col).view(-1,1)
     target_PDE = target_PDE.double()
+    loss_PDE = torch.sum((output_PDE - target_PDE)**2)
+
+    output_boundary = net(input,cr=3)
     target_boundary = anal_u(x_boundary_col)
     target_boundary = target_boundary.double()
-    target = torch.cat((target_PDE,target_boundary),dim=0)
-    # loss_f = torch.sum((target_PDE)**2) + torch.sum((target_boundary)**2)
-    # loss = torch.sum((output_PDE - target_PDE)**2) + torch.sum((output_boundary - target_boundary)**2)
-    loss = torch.sum((output - target)**2)
+    loss_boundary = torch.sum((output_boundary - target_boundary)**2)
+
+    output_u = net(input,cr=2)
+    target_u = y_data
+    target_u = target_u.double()
+    loss_data = 1/2*torch.sum((output_u - target_u)**2)
+
+    loss = loss_PDE + loss_boundary + loss_data
+
     return loss
 
 # analytical solution parameters
-AA = 1
-aa = 2.0*torch.pi
-bb = 3.0*torch.pi
-interval_length = 8.
+interval_length = 1.
 lamb = 4
 
-# def anal_u(x):
-#     return AA * torch.sin(bb * (x + 0.05)) * torch.cos(aa * (x + 0.05)) + 2.0
 
-# def anal_dudx_1st(x):
-#     return AA * (bb*torch.cos(bb*(x+0.05))*torch.cos(aa*(x+0.05)) - aa*torch.sin(bb*(x+0.05))*torch.sin(aa*(x+0.05)))
 
-# def anal_dudx_2nd(x):
-#     return -AA*(aa*aa+bb*bb)*torch.sin(bb*(x+0.05))*torch.cos(aa*(x+0.05))\
-#            -2.0*AA*aa*bb*torch.cos(bb*(x+0.05))*torch.sin(aa*(x+0.05))
-
-a = np.sqrt(5)
-b = np.sqrt(3)
 def anal_u(x):
-    return 4*torch.cos(4 * (x + 3/20)) + 5*torch.sin(a * (x + 7/20)) + 2*torch.sin(b * (x + 1/20))\
-          + 3*torch.sin((x + 17/20)) + 2.0
+    return torch.sin(torch.pi*x)
+
+def anal_dudx_1st(x):
+    return torch.pi*torch.cos(torch.pi*x)
 
 
 def anal_dudx_2nd(x):
-    return -64.*torch.cos(4. * (x + 3/20)) - 25.*torch.sin(a * (x + 7/20)) - 6.*torch.sin(b * (x + 1/20))\
-          - 3.*torch.sin((x + 17/20))
+    return -torch.pi**2*torch.sin(torch.pi*x)
 
-def Lu_f(pointss, lambda_ = 4):
+def anal_a(x):
+    return x**2
+
+def anal_dadx_1st(x):
+    return 2*x
+
+
+x_data = torch.linspace(0.,1.,10)[1:-1]
+x_data = x_data.view(-1,1)
+y_data = anal_u(x_data)
+
+def L_f(pointss, lambda_ = 4):
     r = torch.tensor([],requires_grad=False)
     for x in pointss:
-        f = anal_dudx_2nd(x) - lambda_ * anal_u(x)
-        # f = anal_u(x)
+        f = -(anal_a(x)*anal_dudx_2nd(x) + anal_dadx_1st(x)*anal_dudx_1st(x))
         r = torch.cat((r,f),dim=0)
     return(r)
 
@@ -212,8 +248,8 @@ def pre_define(M_p,J_n,Q):
     models = []
     points = []
     for k in range(M_p):
-        x_min = 8.0/M_p * k
-        x_max = 8.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
+        x_min = 1.0/M_p * k
+        x_max = 1.0/M_p * (k+1) # This means chopping the interval into M_p pieces and deal with each piece seperately
         model = RFM_rep(in_features = 1, J_n = J_n, x_min = x_min, x_max = x_max) # this in_feature is the input of the first layer, as x?
         model = model.apply(weights_init)
         model = model.double()
@@ -228,7 +264,7 @@ def pre_define(M_p,J_n,Q):
 
 def closure():
     optimizer.zero_grad()
-    loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
+    loss = compute_loss(points,points_boundary,net,y_data,input)
     #loss.backward(retain_graph=True)
     loss.backward()
     return loss.item()
@@ -240,70 +276,108 @@ class GaussNewtonOptimizer:
         self.lr = lr
 
     def step(self, input, target):
-        outputs = self.model(input)
+        outputs_PDE = self.model(input,cr=1)
+        outputs_boundary = self.model(input,cr=3)
+        outputs_data = self.model(input,cr=2)
+        outputs = torch.cat((outputs_PDE,outputs_boundary,outputs_data),dim=0)
         residuals = outputs - target
         # residuals = residuals.view(-1)
-        jacobian = torch.zeros((len(residuals), M_p*J_n))
+        jacobian = torch.zeros((len(residuals), 2*M_p*J_n))
         for i, r in enumerate(residuals):
             grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
-            temp = grad_params[0].view(-1)
+            temp1 = grad_params[0].view(-1)
+            temp2 = grad_params[1].view(-1)
+            temp = torch.cat((temp1,temp2),dim=0)
             # jacobian[i,:] = torch.cat([g.view(-1) for g in grad_params])
             jacobian[i,:] = temp
         # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
         # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
         g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals   
         with torch.no_grad():
-            for param in self.model.parameters():
-                param -= self.lr * g_n_update.T
+            for k,param in enumerate(self.model.parameters()):
+                print(k)
+                param -= self.lr * g_n_update[k*M_p*J_n:(k+1)*M_p*J_n,0].T
 
 
-M_p = 4
+
+M_p = 8
 J_n = 50
-Q = 50
+Q = 100
 
-models,points = pre_define(M_p,J_n,Q)
+models_u,points = pre_define(M_p,J_n,Q)
+models_a,points = pre_define(M_p,J_n,Q)
+
 
 points = torch.cat(points,dim=0)
-points1 = torch.linspace(0.,8.,201)[1:-1]
+points1 = torch.linspace(0.,1.,201)[1:-1]
 points = points.view(-1,1)
 #points.requires_grad = True
-points_boundary = torch.tensor([0.,8.]).view(-1,1)
+points_boundary = torch.tensor([0.,1.]).view(-1,1)
 
 
 
 net = Connect(J_n,M_p)
 net.double()
 
+total_params = sum(p.numel() for p in net.parameters())
+print(f"Total trainable parameters: {total_params}")
+
 
 optimizer = GaussNewtonOptimizer(net,1)
 
-Lu = cal_PDE(models,points,M_p,J_n,Q)
-df = pd.DataFrame(Lu)
-df.to_excel("Lu_mine.xlsx", index=False, header=False, engine='openpyxl')
-Lu = torch.tensor(Lu,requires_grad=False)
-u = cal_boundary(models,points_boundary,M_p,J_n,Q)
-df = pd.DataFrame(u)
-df.to_excel("u_mine.xlsx", index=False, header=False, engine='openpyxl')
+Lu_2nd = cal_PDE_2nd(models_u,points,M_p,J_n,Q)
+Lu_2nd = torch.tensor(Lu_2nd,requires_grad=False)
+Lu_2nd = Lu_2nd.double()
+Lu_1st = cal_PDE_1st(models_u,points,M_p,J_n,Q)
+Lu_1st = torch.tensor(Lu_1st,requires_grad=False)
+Lu_1st = Lu_1st.double()
+u = cal_boundary(models_u,points,M_p,J_n,Q)
 u = torch.tensor(u,requires_grad=False)
+u = u.double()
 
-lambda_i,lambda_o = scaling(Lu,u)
+La_2nd = cal_PDE_2nd(models_a,points,M_p,J_n,Q)
+La_2nd = torch.tensor(La_2nd,requires_grad=False)
+La_2nd = La_2nd.double()
+La_1st = cal_PDE_1st(models_a,points,M_p,J_n,Q)
+La_1st = torch.tensor(La_1st,requires_grad=False)
+La_1st = La_1st.double()
+a = cal_boundary(models_a,points,M_p,J_n,Q)
+a = torch.tensor(a,requires_grad=False)
+a = a.double()
+
+
+
+lambda_i,lambda_o = scaling(Lu_2nd,u)
 lambda_i = lambda_i[0].view(-1,1)
 print(max(lambda_i))
 lambda_o = lambda_o[0].view(-1,1)
 print(max(lambda_o))
+
+
+u_input1 = Lu_2nd
+u_input2 = Lu_1st
+a_input1 = a
+a_input2 = La_1st
+
+u_data = cal_boundary(models_u,x_data,M_p,J_n,Q)
+u_data = torch.tensor(u_data,requires_grad=False)
+u_data = u_data.double()
+
+u_boundary = cal_boundary(models_u,points_boundary,M_p,J_n,Q)
+u_boundary = torch.tensor(u_boundary,requires_grad=False)
+u_boundary = u_boundary.double()
+
+input = torch.cat((u_input1,u_input2,a_input1,a_input2,u,u_data,u_boundary),dim=0)
+
+
 points = torch.tensor(points,requires_grad=False)
-
-
-Lu = torch.tensor(Lu,requires_grad=False)
-Lu = Lu.double()
-u = torch.tensor(u,requires_grad=False)
-u = u.double()
-input = torch.cat((Lu,u),dim=0)
-target_PDE = Lu_f(points).view(-1,1)
+target_PDE = L_f(points).view(-1,1)
 target_PDE = target_PDE.double()
 target_boundary = anal_u(points_boundary)
 target_boundary = target_boundary.double()
-target = torch.cat((target_PDE,target_boundary),dim=0)
+target_data = y_data
+target_data = target_data.double()
+target = torch.cat((target_PDE,target_boundary,target_data),dim=0)
 
 
 
@@ -316,10 +390,10 @@ while flag == 1:
 
 
 
-    total_loss = compute_loss(points,points_boundary,models,net,M_p,J_n,Q,Lu,u,lambda_i,lambda_o)
+    total_loss = compute_loss(points,points_boundary,net,y_data,input)
     # This is for Gauss-Newton
     optimizer.step(input, target)
-    loss = torch.nn.functional.mse_loss(net(input), target)
+    #loss = torch.nn.functional.mse_loss(net(input), target)
 
     print('total_loss:',total_loss)
     
@@ -327,19 +401,36 @@ while flag == 1:
     epoch += 1
 
     if epoch % 10 == 0:
-        u_plot = cal_boundary(models,points,M_p,J_n,Q)
-        u_plot = torch.tensor(u_plot,requires_grad=False)
 
-        U = net(u_plot)
-        U = U.detach().numpy()
+
+        # U = net(input,cr=5)
+        # U = U.detach().numpy()
+        # points_plot = points.detach().numpy()
+        # U_true = anal_u(points)
+        # U_true = U_true.detach().numpy()
+        # Error = np.abs(U - U_true)
+        # Errormax = np.max(Error)
+        # print('Errormax:',Errormax)
+        # plt.figure(int(epoch))
+        # plt.plot(points_plot,U)
+        # plt.title('Approximate Solution')
+        # plt.xlabel('x')
+        # plt.ylabel('y')  
+
+        # plt.draw()  # Update the figure
+        # plt.pause(5)  # Wait for 0.1 seconds
+        # plt.close()  # Clear the figure for the next plot
+
+        a = net(input,cr=6)
+        a = a.detach().numpy()
         points_plot = points.detach().numpy()
-        U_true = anal_u(points)
-        U_true = U_true.detach().numpy()
-        Error = np.abs(U - U_true)
+        a_true = anal_a(points)
+        a_true = a_true.detach().numpy()
+        Error = np.abs(a - a_true)
         Errormax = np.max(Error)
         print('Errormax:',Errormax)
         plt.figure(int(epoch))
-        plt.plot(points_plot,U)
+        plt.plot(points_plot,a)
         plt.title('Approximate Solution')
         plt.xlabel('x')
         plt.ylabel('y')  
@@ -347,3 +438,5 @@ while flag == 1:
         plt.draw()  # Update the figure
         plt.pause(5)  # Wait for 0.1 seconds
         plt.close()  # Clear the figure for the next plot
+
+
