@@ -113,7 +113,7 @@ class Connect(nn.Module):
             return u_output
         
         if cr == 6:  # a connection at collocation points
-            a_output = self.hidden_layer2(input[4*M_p*(Q+1):5*M_p*(Q+1),:])
+            a_output = self.hidden_layer2(input[2*M_p*(Q+1):3*M_p*(Q+1),:])
 
             return a_output
         
@@ -191,16 +191,19 @@ def scaling(Lu,u):
         
 def compute_loss(x_interior_col,x_boundary_col,net,y_data,input):
     output_PDE = net(input,cr=1)
+    output_PDE = output_PDE.double()
     target_PDE = L_f(x_interior_col).view(-1,1)
     target_PDE = target_PDE.double()
     loss_PDE = torch.sum((output_PDE - target_PDE)**2)
 
     output_boundary = net(input,cr=3)
+    output_boundary = output_boundary.double()
     target_boundary = anal_u(x_boundary_col)
     target_boundary = target_boundary.double()
     loss_boundary = torch.sum((output_boundary - target_boundary)**2)
 
     output_u = net(input,cr=2)
+    output_u = output_u.double()
     target_u = y_data
     target_u = target_u.double()
     loss_data = 1/2*torch.sum((output_u - target_u)**2)
@@ -226,7 +229,7 @@ def anal_dudx_2nd(x):
     return -torch.pi**2*torch.sin(torch.pi*x)
 
 def anal_a(x):
-    return x**2
+    return x**2 + 1
 
 def anal_dadx_1st(x):
     return 2*x
@@ -389,7 +392,11 @@ total_params = sum(p.numel() for p in net.parameters())
 print(f"Total trainable parameters: {total_params}")
 
 
-optimizer = GaussNewtonOptimizer(net,1)
+# optimizer = GaussNewtonOptimizer(net,1)
+# optimizer = optim.LBFGS(net.parameters(), lr=1, max_iter=20, max_eval=None, tolerance_grad=1e-05, tolerance_change=1e-09, history_size=100, line_search_fn='strong_wolfe')
+optimizer = optim.Adam(net.parameters(), lr=0.01)
+
+
 
 Lu_2nd = cal_PDE_2nd(models_u,points,M_p,J_n,Q)
 Lu_2nd = torch.tensor(Lu_2nd,requires_grad=False)
@@ -456,10 +463,18 @@ while flag == 1:
     print('epoch:',epoch)
 
 
-
+    # This is for Adam
     total_loss = compute_loss(points,points_boundary,net,y_data,input)
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+
+
+    
     # This is for Gauss-Newton
-    optimizer.step(input, target)
+    # total_loss = compute_loss(points,points_boundary,net,y_data,input)
+    # optimizer.step(input, target)
     #loss = torch.nn.functional.mse_loss(net(input), target)
 
     print('total_loss:',total_loss)
@@ -467,7 +482,7 @@ while flag == 1:
 
     epoch += 1
 
-    if epoch % 10 == 0:
+    if epoch % 500 == 0:
 
 
         U = net(input,cr=5)
@@ -480,7 +495,7 @@ while flag == 1:
         print('Errormax:',Errormax)
         plt.figure(int(epoch))
         plt.plot(points_plot,U)
-        plt.title('Approximate Solution')
+        plt.title('Approximate Solution of U')
         plt.xlabel('x')
         plt.ylabel('y')  
 
@@ -498,7 +513,7 @@ while flag == 1:
         print('Errormax:',Errormax)
         plt.figure(int(epoch))
         plt.plot(points_plot,a)
-        plt.title('Approximate Solution')
+        plt.title('Approximate Solution of a')
         plt.xlabel('x')
         plt.ylabel('y')  
 
