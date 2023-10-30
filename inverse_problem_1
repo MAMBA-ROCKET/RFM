@@ -189,6 +189,7 @@ def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
 
 
     target = L_f(points)
+    target = torch.tensor(target,requires_grad=False)
     target = target.double()
 
     loss = torch.sum((output1*input_Lu_2nd+output2*input_Lu_1st - target)**2)
@@ -207,20 +208,31 @@ def anal_u_true(x):
     return torch.sin(x)
 
 
+# def anal_u(x):
+#     input = cal_boundary(models_u,x,M_p,J_n,Q)
+#     input = torch.tensor(input,requires_grad=False)
+#     return net_u(input)
+
 def anal_u(x):
-    input = cal_boundary(models_u,x,M_p,J_n,Q)
-    input = torch.tensor(input,requires_grad=False)
-    return net_u(input)
+    return torch.sin(x)
 
 def anal_dudx_1st(x):
-    input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
-    input = torch.tensor(input,requires_grad=False)
-    return net_u(input)
+    return torch.cos(x)
 
 def anal_dudx_2nd(x):
-    input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
-    input = torch.tensor(input,requires_grad=False)
-    return net_u(input)
+    return -torch.sin(x)
+
+
+
+# def anal_dudx_1st(x):
+#     input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
+#     input = torch.tensor(input,requires_grad=False)
+#     return net_u(input)
+
+# def anal_dudx_2nd(x):
+#     input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
+#     input = torch.tensor(input,requires_grad=False)
+#     return net_u(input)
 
 
 def anal_a(x):
@@ -254,6 +266,8 @@ def L_f(pointss, lambda_ = 4,):
         r2 = torch.cat((r2,f2),dim=0)
     r1 = r1.view(-1,1)
     r2 = r2.view(-1,1)
+
+    return (r1*anal_dudx_2nd(pointss) + r2*anal_dudx_1st(pointss))
     return(r1*input_Lu_2nd + r2*input_Lu_1st)
 
 # define the local-networks and points in the corresponding regions
@@ -313,7 +327,6 @@ Q = 50
 models_u,points = pre_define(M_p,J_n,Q)
 
 points = torch.cat(points,dim=0)
-points1 = torch.linspace(0.,8.,201)[1:-1]
 points = points.view(-1,1)
 #points.requires_grad = True
 points_boundary = torch.tensor([0.,8.]).view(-1,1)
@@ -397,7 +410,13 @@ Lu_1st = Lu_1st.double()
 
 
 input_Lu_1st = net_u(Lu_1st)
+input_Lu_1st = torch.tensor(input_Lu_1st,requires_grad=False)
+input_Lu_1st.double()
 input_Lu_2nd = net_u(Lu_2nd)
+input_Lu_2nd = torch.tensor(input_Lu_2nd,requires_grad=False)
+input_Lu_2nd.double()
+
+
 test_Lu_2nd = -torch.sin(points)
 test_Lu_1st = torch.cos(points)
 ee = input_Lu_2nd - test_Lu_2nd
@@ -434,7 +453,8 @@ while epoch <= 5:
     total_loss = compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd)
     # This is for Gauss-Newton
     optimizer_a.step(input, target)
-    loss = torch.nn.functional.mse_loss(net_a(input), target)
+
+    # loss = torch.nn.functional.mse_loss(net_a(input)*input_Lu_2nd + net_a(La)*input_Lu_1st, target)
 
     print('total_loss:',total_loss)
     
