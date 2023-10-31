@@ -216,23 +216,23 @@ def anal_u_true(x):
 def anal_u(x):
     return torch.sin(x)
 
-def anal_dudx_1st(x):
-    return torch.cos(x)
-
-def anal_dudx_2nd(x):
-    return -torch.sin(x)
-
-
-
 # def anal_dudx_1st(x):
-#     input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
-#     input = torch.tensor(input,requires_grad=False)
-#     return net_u(input)
+#     return torch.cos(x)
 
 # def anal_dudx_2nd(x):
-#     input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
-#     input = torch.tensor(input,requires_grad=False)
-#     return net_u(input)
+#     return -torch.sin(x)
+
+
+
+def anal_dudx_1st(x):
+    input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_u(input)
+
+def anal_dudx_2nd(x):
+    input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_u(input)
 
 
 def anal_a(x):
@@ -417,31 +417,21 @@ input_Lu_2nd = torch.tensor(input_Lu_2nd,requires_grad=False)
 input_Lu_2nd.double()
 
 
-test_Lu_2nd = -torch.sin(points)
-test_Lu_1st = torch.cos(points)
-ee = input_Lu_2nd - test_Lu_2nd
-ee1 = input_Lu_1st - test_Lu_1st
-# ee = net_u(input) - y_data
-print(torch.max(torch.abs(ee)))
-print(torch.max(torch.abs(ee1)))
 
-
-
-
-
-
-input = cal_boundary(models_a,points,M_p,J_n,Q)
+input1 = cal_boundary(models_a,points,M_p,J_n,Q)
+input1 = torch.tensor(input1,requires_grad=False)
+input2 = cal_PDE_1st(models_a,points,M_p,J_n,Q)
+input2 = torch.tensor(input2,requires_grad=False)
+input = -(input1*input_Lu_2nd + input2*input_Lu_1st)
 input = torch.tensor(input,requires_grad=False)
+
 target = L_f(points)
 target = torch.tensor(target,requires_grad=False)
 
 def true_f(x):
     return (x**2+1)*torch.sin(x) - 2*x*torch.cos(x)
 
-target_true = true_f(points)
-target_test = L_f(points)
-e = target_test - target_true
-print(torch.max(torch.abs(e)))
+
 
 epoch = 0
 # Training
