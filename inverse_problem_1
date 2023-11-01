@@ -252,7 +252,7 @@ mean = 0  # 均值
 stddev = 0.1  # 标准差，控制噪声的强度
 noise = np.random.normal(mean, stddev, y_data.shape)
 # 添加噪声到原始数据
-noisy_data = y_data + noise
+y_data = y_data + noise
 
 
 def L_f(pointss, lambda_ = 4,):
