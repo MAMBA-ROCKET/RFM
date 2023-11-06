@@ -187,12 +187,17 @@ def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
     output1 = -net_a(input1)
     output2 = -net_a(input2)
 
-
     target = L_f(points)
     target = torch.tensor(target,requires_grad=False)
     target = target.double()
 
-    loss = torch.sum((output1*input_Lu_2nd+output2*input_Lu_1st - target)**2)
+    input_reg = La
+    target_reg = anal_dadx_1st(points)
+
+    loss_reg = torch.sum((input_reg - target_reg)**2)
+    loss_f = torch.sum((output1*input_Lu_2nd+output2*input_Lu_1st - target)**2)
+
+    loss = loss_f + loss_reg
 
     return loss
 
@@ -324,6 +329,8 @@ M_p = 32
 J_n = 50
 Q = 50
 
+h = interval_length/M_p/Q
+
 models_u,points = pre_define(M_p,J_n,Q)
 
 points = torch.cat(points,dim=0)
@@ -417,16 +424,33 @@ input_Lu_2nd = torch.tensor(input_Lu_2nd,requires_grad=False)
 input_Lu_2nd.double()
 
 
-
+# PDE part
 input1 = cal_boundary(models_a,points,M_p,J_n,Q)
 input1 = torch.tensor(input1,requires_grad=False)
 input2 = cal_PDE_1st(models_a,points,M_p,J_n,Q)
 input2 = torch.tensor(input2,requires_grad=False)
-input = -(input1*input_Lu_2nd + input2*input_Lu_1st)
-input = torch.tensor(input,requires_grad=False)
+input_f = -(input1*input_Lu_2nd + input2*input_Lu_1st)
+input_f = torch.tensor(input_f,requires_grad=False)
+target_f = L_f(points)
+target_f = torch.tensor(target_f,requires_grad=False)
 
-target = L_f(points)
-target = torch.tensor(target,requires_grad=False)
+
+# regularization part
+input_reg1 = cal_boundary(models_a,points[:-1,0],M_p,J_n,Q)
+input_reg1 = torch.tensor(input_reg1,requires_grad=False)
+input_reg1 = input_reg1.double()
+input_reg2 = cal_boundary(models_a,points[1:,0],M_p,J_n,Q)
+input_reg2 = torch.tensor(input_reg2,requires_grad=False)
+input_reg2 = input_reg2.double()
+input_reg = input_reg2 - input_reg1
+input_reg = torch.tensor(input_reg,requires_grad=False)
+input_reg = input_reg.double()
+target_reg = torch.zeros_like(input_reg)
+target_reg = torch.tensor(target_reg,requires_grad=False)
+target_reg = target_reg.double()
+
+input = torch.cat((input_f,input_reg),dim=0)
+target = torch.cat((target_f,target_reg),dim=0)
 
 def true_f(x):
     return (x**2+1)*torch.sin(x) - 2*x*torch.cos(x)
