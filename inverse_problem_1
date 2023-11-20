@@ -241,10 +241,16 @@ def anal_dudx_2nd(x):
 
 
 def anal_a(x):
-    return x**2 + 1
+    # return x**2 + 1
+    return torch.ones_like(x)
 
 def anal_dadx_1st(x):
-    return 2*x
+    # return 2*x
+    return torch.zeros_like(x)
+
+def anal_dadx_2nd(x):
+    # return 2*torch.ones_like(x)
+    return torch.zeros_like(x)
 
 
 x_data = torch.linspace(0.,8.,1000)[1:-1]
@@ -436,16 +442,16 @@ target_f = torch.tensor(target_f,requires_grad=False)
 
 
 # regularization part
-input_reg1 = cal_boundary(models_a,points[:-1,0],M_p,J_n,Q)
+input_reg1 = cal_boundary(models_a,points[:-1,:],M_p,J_n,Q)
 input_reg1 = torch.tensor(input_reg1,requires_grad=False)
 input_reg1 = input_reg1.double()
-input_reg2 = cal_boundary(models_a,points[1:,0],M_p,J_n,Q)
+input_reg2 = cal_boundary(models_a,points[1:,:],M_p,J_n,Q)
 input_reg2 = torch.tensor(input_reg2,requires_grad=False)
 input_reg2 = input_reg2.double()
-input_reg = input_reg2 - input_reg1
+input_reg = (input_reg2 - input_reg1)/h
 input_reg = torch.tensor(input_reg,requires_grad=False)
 input_reg = input_reg.double()
-target_reg = torch.zeros_like(input_reg)
+target_reg = torch.zeros((M_p*(Q+1)-1,1))
 target_reg = torch.tensor(target_reg,requires_grad=False)
 target_reg = target_reg.double()
 
@@ -476,9 +482,9 @@ while epoch <= 5:
     epoch += 1
 
     if epoch % 5 == 0:
+
         a_plot = cal_boundary(models_a,points,M_p,J_n,Q)
         a_plot = torch.tensor(a_plot,requires_grad=False)
-
         A = net_a(a_plot)
         A = A.detach().numpy()
         points_plot = points.detach().numpy()
@@ -487,6 +493,19 @@ while epoch <= 5:
         Error = np.abs(A - A_true)
         Errormax = np.max(Error)
         print('Errormax:',Errormax)
+
+
+        a_xx_plot = cal_PDE_2nd(models_a,points,M_p,J_n,Q)
+        a_xx_plot = torch.tensor(a_xx_plot,requires_grad=False)
+        A_xx = net_a(a_xx_plot)
+        A_xx = A_xx.detach().numpy()
+        points_plot = points.detach().numpy()
+        A_xx_true = anal_dadx_2nd(points)
+        A_xx_true = A_xx_true.detach().numpy()
+        Error = np.abs(A_xx - A_xx_true)
+        Errormax = np.max(Error)
+        print('2nd Errormax:',Errormax)
+
         plt.figure(int(epoch))
         plt.plot(points_plot,A)
         plt.title('Approximate Solution of a')
