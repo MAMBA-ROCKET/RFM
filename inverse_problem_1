@@ -241,15 +241,15 @@ def anal_dudx_2nd(x):
 
 
 def anal_a(x):
-    # return x**2 + 1
+    return x**2 + 1
     return torch.ones_like(x)
 
 def anal_dadx_1st(x):
-    # return 2*x
+    return 2*x
     return torch.zeros_like(x)
 
 def anal_dadx_2nd(x):
-    # return 2*torch.ones_like(x)
+    return 2*torch.ones_like(x)
     return torch.zeros_like(x)
 
 
@@ -259,11 +259,11 @@ y_data = anal_u_true(x_data)
 
 
 # 生成噪声数据，这里使用正态分布的随机数作为噪声
-mean = 0  # 均值
-stddev = 0.1  # 标准差，控制噪声的强度
-noise = np.random.normal(mean, stddev, y_data.shape)
-# 添加噪声到原始数据
-y_data = y_data + noise
+# mean = 0  # 均值
+# stddev = 0.1  # 标准差，控制噪声的强度
+# noise = np.random.normal(mean, stddev, y_data.shape)
+# # 添加噪声到原始数据
+# y_data = y_data + noise
 
 
 def L_f(pointss, lambda_ = 4,):
@@ -381,27 +381,27 @@ while epoch <= 5:
 
     epoch += 1
 
-    # if epoch % 5 == 0:
-    #     u_plot = cal_boundary(models_u,points,M_p,J_n,Q)
-    #     u_plot = torch.tensor(u_plot,requires_grad=False)
+    if epoch % 5 == 0:
+        u_plot = cal_boundary(models_u,points,M_p,J_n,Q)
+        u_plot = torch.tensor(u_plot,requires_grad=False)
 
-    #     U = net_u(u_plot)
-    #     U = U.detach().numpy()
-    #     points_plot = points.detach().numpy()
-    #     U_true = anal_u_true(points)
-    #     U_true = U_true.detach().numpy()
-    #     Error = np.abs(U - U_true)
-    #     Errormax = np.max(Error)
-    #     print('Errormax:',Errormax)
-    #     plt.figure(int(epoch))
-    #     plt.plot(points_plot,U)
-    #     plt.title('Approximate Solution of u')
-    #     plt.xlabel('x')
-    #     plt.ylabel('y')  
+        U = net_u(u_plot)
+        U = U.detach().numpy()
+        points_plot = points.detach().numpy()
+        U_true = anal_u_true(points)
+        U_true = U_true.detach().numpy()
+        Error = np.abs(U - U_true)
+        Errormax = np.max(Error)
+        print('Errormax:',Errormax)
+        plt.figure(int(epoch))
+        plt.plot(points_plot,U)
+        plt.title('Approximate Solution of u')
+        plt.xlabel('x')
+        plt.ylabel('u')  
 
-    #     plt.draw()  # Update the figure
-    #     plt.pause(5)  # Wait for 0.1 seconds
-    #     plt.close()  # Clear the figure for the next plot\
+        plt.draw()  # Update the figure
+        plt.pause(5)  # Wait for 0.1 seconds
+        plt.close()  # Clear the figure for the next plot\
 
 
 models_a,points = pre_define(M_p,J_n,Q)
@@ -455,8 +455,8 @@ target_reg = torch.zeros((M_p*(Q+1)-1,1))
 target_reg = torch.tensor(target_reg,requires_grad=False)
 target_reg = target_reg.double()
 
-input = torch.cat((input_f,input_reg),dim=0)
-target = torch.cat((target_f,target_reg),dim=0)
+input = torch.cat((input_f,input_reg*0),dim=0)
+target = torch.cat((target_f,target_reg*0),dim=0)
 
 def true_f(x):
     return (x**2+1)*torch.sin(x) - 2*x*torch.cos(x)
@@ -494,6 +494,16 @@ while epoch <= 5:
         Errormax = np.max(Error)
         print('Errormax:',Errormax)
 
+        plt.figure(int(epoch))
+        plt.plot(points_plot,A)
+        plt.title('Approximate Solution of a')
+        plt.xlabel('x')
+        plt.ylabel('a')  
+
+        plt.draw()  # Update the figure
+        plt.pause(10)  # Wait for 0.1 seconds
+        plt.close()  # Clear the figure for the next plot
+
 
         a_xx_plot = cal_PDE_2nd(models_a,points,M_p,J_n,Q)
         a_xx_plot = torch.tensor(a_xx_plot,requires_grad=False)
@@ -506,13 +516,14 @@ while epoch <= 5:
         Errormax = np.max(Error)
         print('2nd Errormax:',Errormax)
 
+
         plt.figure(int(epoch))
-        plt.plot(points_plot,A)
-        plt.title('Approximate Solution of a')
+        plt.plot(points_plot,A_xx)
+        plt.title('Approximate Solution of a\'\'')
         plt.xlabel('x')
-        plt.ylabel('y')  
+        plt.ylabel('a\'\'')  
 
         plt.draw()  # Update the figure
         plt.pause(5)  # Wait for 0.1 seconds
-        plt.close()  # Clear the figure for the next plot\
+        plt.close()  # Clear the figure for the next plot
 
