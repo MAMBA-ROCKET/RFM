@@ -200,9 +200,10 @@ def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
     target = target.double()
 
     #input_reg = La
+    #output_reg = net_a(input_reg)
     #target_reg = anal_dadx_1st(points)
 
-    #loss_reg = torch.sum((input_reg - target_reg)**2)
+    #loss_reg = torch.sum((output_reg - target_reg)**2)
     loss_f = torch.sum((-torch.exp(output1)*(input_Lu_2nd+output2*input_Lu_1st) - target)**2)
 
     loss = loss_f# + loss_reg
