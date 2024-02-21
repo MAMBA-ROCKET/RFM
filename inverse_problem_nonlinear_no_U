@@ -32,7 +32,7 @@ set_seed(100)
 # Initialize the parameters of your network to be 1
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        init.constant_(m.weight, 0)
+        init.constant_(m.weight, 5)
         if m.bias is not None:
             init.constant_(m.bias, 1.0)
 
@@ -491,8 +491,11 @@ while epoch <= 5:
 
 
     total_loss = compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd)
-    # This is for Gauss-Newton
-    optimizer_a.step(input, target)
+
+    if total_loss > 1e-5:
+
+        # This is for Gauss-Newton
+        optimizer_a.step(input, target)
 
     # loss = torch.nn.functional.mse_loss(net_a(input)*input_Lu_2nd + net_a(La)*input_Lu_1st, target)
 
