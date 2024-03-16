@@ -32,7 +32,7 @@ set_seed(100)
 # Initialize the parameters of your network to be 1
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        init.constant_(m.weight, 5)
+        init.constant_(m.weight, 0.1)
         if m.bias is not None:
             init.constant_(m.bias, 1.0)
 
@@ -252,15 +252,18 @@ def anal_dudx_2nd(x):
 def anal_a(x):
     #return torch.exp(x**2 + 1)
     return torch.ones_like(x)
+    #return torch.exp(torch.sin(x))
 
 def anal_dadx_1st(x):
     #return 2*x*torch.exp(x**2 + 1)
     return torch.zeros_like(x)
+    #return torch.exp(torch.sin(x)) * torch.cos(x)
 
 
 def anal_dadx_2nd(x):
     #return torch.exp(x**2 + 1)*(4*x**2+2)
     return torch.zeros_like(x)
+    #return torch.exp(torch.sin(x)) * (torch.cos(x)**2 - torch.sin(x))
 
 
 x_data = torch.linspace(0.,8.,1000)[1:-1]
@@ -318,7 +321,7 @@ def closure():
     return loss.item()
 
 
-class GaussNewtonOptimizer:
+class GaussNewtonOptimizer_u:
     def __init__(self, model, lr):
         self.model = model
         self.lr = lr
@@ -326,6 +329,7 @@ class GaussNewtonOptimizer:
     def step(self, input, target):
         outputs = self.model(input)
         residuals = outputs - target
+        print(torch.max(torch.abs(residuals)))
         # residuals = residuals.view(-1)
         jacobian = torch.zeros((len(residuals), M_p*J_n))
         for i, r in enumerate(residuals):
@@ -333,6 +337,8 @@ class GaussNewtonOptimizer:
             temp = grad_params[0].view(-1)
             # jacobian[i,:] = torch.cat([g.view(-1) for g in grad_params])
             jacobian[i,:] = temp
+
+        # print(torch.max(jacobian))
         # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
         # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
         g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals   
@@ -340,6 +346,33 @@ class GaussNewtonOptimizer:
             for param in self.model.parameters():
                 param -= self.lr * g_n_update.T
 
+
+class GaussNewtonOptimizer_a:
+    def __init__(self, model, lr):
+        self.model = model
+        self.lr = lr
+
+    def step(self, input_a,input_f1,input_f2, target_f):
+        output1 = self.model(input_f2)
+        output2 = self.model(input_a)
+        outputs = -torch.exp(output2)*(input_f1+output1)
+        residuals = outputs - target_f
+        print(torch.max(torch.abs(residuals)))
+        # residuals = residuals.view(-1)
+        jacobian = torch.zeros((len(residuals), M_p*J_n))
+        for i, r in enumerate(residuals):
+            grad_params = torch.autograd.grad(r, self.model.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
+            temp = grad_params[0].view(-1)
+            # jacobian[i,:] = torch.cat([g.view(-1) for g in grad_params])
+            jacobian[i,:] = temp
+
+        # print(torch.max(jacobian))
+        # jacobian = torch.autograd.functional.jacobian(self.model, input, create_graph=True)
+        # jacobian = torch.autograd.functional.jacobian(residuals, self.model.parameters(), create_graph=True)
+        g_n_update = torch.pinverse(jacobian.T @ jacobian) @ jacobian.T @ residuals   
+        with torch.no_grad():
+            for param in self.model.parameters():
+                param -= self.lr * g_n_update.T
 
 M_p = 32
 J_n = 50
@@ -364,8 +397,8 @@ net_a.apply(init_weights)
 net_a.double()
 
 
-optimizer = GaussNewtonOptimizer(net_u,1)
-optimizer_a = GaussNewtonOptimizer(net_a,1)
+optimizer = GaussNewtonOptimizer_u(net_u,1)
+optimizer_a = GaussNewtonOptimizer_a(net_a,1)
 
 
 u = cal_boundary(models_u,x_data,M_p,J_n,Q)
@@ -447,16 +480,14 @@ input_Lu_2nd = anal_dudx_2nd(points)
 
 
 # PDE part
-input1 = cal_boundary(models_a,points,M_p,J_n,Q)
+input_a = cal_boundary(models_a,points,M_p,J_n,Q)
+input_a = torch.tensor(input_a,requires_grad=False)
+input1 = cal_PDE_1st(models_a,points,M_p,J_n,Q)
 input1 = torch.tensor(input1,requires_grad=False)
-input2 = cal_PDE_1st(models_a,points,M_p,J_n,Q)
-input2 = torch.tensor(input2,requires_grad=False)
-input_e = cal_boundary(models_a,points,M_p,J_n,Q)
-input_e= np.exp(input_e)
-input_e = torch.tensor(input_e,requires_grad=False)
-input_f = -input_e*(anal_dudx_2nd(points) + input2*anal_dudx_1st(points))
-# input_f = -input_e*(input1*input_Lu_2nd + input2*input_Lu_1st)
-input_f = torch.tensor(input_f,requires_grad=False)
+input_f1 = anal_dudx_2nd(points)
+input_f1 = torch.tensor(input_f1,requires_grad=False)
+input_f1 = input_f1.double()
+input_f2 = input1 * anal_dudx_1st(points)
 target_f = L_f(points)
 target_f = torch.tensor(target_f,requires_grad=False)
 
@@ -475,8 +506,8 @@ target_reg = torch.zeros((M_p*(Q+1)-1,1))
 target_reg = torch.tensor(target_reg,requires_grad=False)
 target_reg = target_reg.double()
 
-input = torch.cat((input_f,input_reg*0),dim=0)
-target = torch.cat((target_f,target_reg*0),dim=0)
+# input = torch.cat((input_a,input_f1,input_f2,input_reg*0),dim=0)
+# target = torch.cat((target_f,target_reg*0),dim=0)
 
 def true_f(x):
     return (x**2+1)*torch.sin(x) - 2*x*torch.cos(x)
@@ -485,17 +516,22 @@ def true_f(x):
 
 epoch = 0
 # Training
-while epoch <= 5:
+while epoch <= 100:
 
     print('epoch:',epoch)
 
 
     total_loss = compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd)
 
+    gradient_a = torch.autograd.grad(total_loss, net_a.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
+
+    print('max_grad:',torch.max(torch.abs(gradient_a[0])))
+
+
     if total_loss > 1e-5:
 
         # This is for Gauss-Newton
-        optimizer_a.step(input, target)
+        optimizer_a.step(input_a,input_f1,input_f2, target_f)
 
     # loss = torch.nn.functional.mse_loss(net_a(input)*input_Lu_2nd + net_a(La)*input_Lu_1st, target)
 
