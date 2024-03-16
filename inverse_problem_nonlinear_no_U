@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import random
 import torch.optim as optim
 import matplotlib
-matplotlib.use('TkAgg')
 import sympy as sp
 import scipy.optimize as sciopt
 import copy
@@ -16,7 +15,7 @@ from scipy.linalg import solve as scipy_solve
 from scipy.optimize import minimize
 import pandas as pd
 import torch.nn.init as init
-
+matplotlib.use('TkAgg')
 
 # fix random seed
 torch.set_default_dtype(torch.float64)
@@ -210,23 +209,6 @@ def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
 
     return loss
 
-# analytical solution parameters
-AA = 1
-aa = 2.0*torch.pi
-bb = 3.0*torch.pi
-interval_length = 8.
-lamb = 4
-
-
-def anal_u_true(x):
-    return torch.sin(x)
-
-
-# def anal_u(x):
-#     input = cal_boundary(models_u,x,M_p,J_n,Q)
-#     input = torch.tensor(input,requires_grad=False)
-#     return net_u(input)
-
 def anal_u(x):
     return torch.sin(x)
 
@@ -236,18 +218,20 @@ def anal_dudx_1st(x):
 def anal_dudx_2nd(x):
     return -torch.sin(x)
 
+def RFM_u(x):
+    input = cal_boundary(models_u,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_u(input)
 
+def RFM_dudx_1st(x):
+    input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_u(input)
 
-# def anal_dudx_1st(x):
-#     input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
-#     input = torch.tensor(input,requires_grad=False)
-#     return net_u(input)
-
-# def anal_dudx_2nd(x):
-#     input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
-#     input = torch.tensor(input,requires_grad=False)
-#     return net_u(input)
-
+def RFM_dudx_2nd(x):
+    input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_u(input)
 
 def anal_a(x):
     #return torch.exp(x**2 + 1)
@@ -259,25 +243,25 @@ def anal_dadx_1st(x):
     return torch.zeros_like(x)
     #return torch.exp(torch.sin(x)) * torch.cos(x)
 
-
 def anal_dadx_2nd(x):
     #return torch.exp(x**2 + 1)*(4*x**2+2)
     return torch.zeros_like(x)
     #return torch.exp(torch.sin(x)) * (torch.cos(x)**2 - torch.sin(x))
 
+def RFM_a(x):
+    input = cal_boundary(models_a,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_a(input)
 
-x_data = torch.linspace(0.,8.,1000)[1:-1]
-x_data = x_data.view(-1,1)
-y_data = anal_u_true(x_data)
+def RFM_dadx_1st(x):
+    input = cal_PDE_1st(models_a,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_a(input)
 
-
-# 生成噪声数据，这里使用正态分布的随机数作为噪声
-# mean = 0  # 均值
-# stddev = 0.1  # 标准差，控制噪声的强度
-# noise = np.random.normal(mean, stddev, y_data.shape)
-# # 添加噪声到原始数据
-# y_data = y_data + noise
-
+def RFM_dadx_2nd(x):
+    input = cal_PDE_2nd(models_a,x,M_p,J_n,Q)
+    input = torch.tensor(input,requires_grad=False)
+    return net_a(input)
 
 def L_f(pointss, lambda_ = 4,):
     r1 = torch.tensor([],requires_grad=False)
@@ -293,6 +277,24 @@ def L_f(pointss, lambda_ = 4,):
 
     return (r1*anal_dudx_2nd(pointss) + r2*anal_dudx_1st(pointss))
     return(r1*input_Lu_2nd + r2*input_Lu_1st)
+
+def true_f(x):
+    return (x**2+1)*torch.sin(x) - 2*x*torch.cos(x)
+
+# generate collocation points and data
+x_data = torch.linspace(0.,8.,1000)[1:-1]
+x_data = x_data.view(-1,1)
+y_data = anal_u(x_data)
+
+# generate noise
+mean = 0  # 均值
+stddev = 0.1  # 标准差，控制噪声的强度
+noise = np.random.normal(mean, stddev, y_data.shape)
+
+# y_data = y_data + noise
+
+
+
 
 # define the local-networks and points in the corresponding regions
 def pre_define(M_p,J_n,Q):
@@ -320,7 +322,6 @@ def closure():
     loss.backward()
     return loss.item()
 
-
 class GaussNewtonOptimizer_u:
     def __init__(self, model, lr):
         self.model = model
@@ -345,7 +346,6 @@ class GaussNewtonOptimizer_u:
         with torch.no_grad():
             for param in self.model.parameters():
                 param -= self.lr * g_n_update.T
-
 
 class GaussNewtonOptimizer_a:
     def __init__(self, model, lr):
@@ -374,10 +374,11 @@ class GaussNewtonOptimizer_a:
             for param in self.model.parameters():
                 param -= self.lr * g_n_update.T
 
+# domain decomposition
+interval_length = 8.
 M_p = 32
 J_n = 50
 Q = 50
-
 h = interval_length/M_p/Q
 
 models_u,points = pre_define(M_p,J_n,Q)
@@ -387,8 +388,6 @@ points = points.view(-1,1)
 #points.requires_grad = True
 points_boundary = torch.tensor([0.,8.]).view(-1,1)
 
-
-
 net_u = Connect_u(J_n,M_p)
 net_u.double()
 
@@ -396,16 +395,19 @@ net_a = Connect_a(J_n,M_p)
 net_a.apply(init_weights)
 net_a.double()
 
-
 optimizer = GaussNewtonOptimizer_u(net_u,1)
 optimizer_a = GaussNewtonOptimizer_a(net_a,1)
 
+def transform(x):
+    y = torch.tensor(x,requires_grad=False)
+    y = y.double()
+    return y
 
-u = cal_boundary(models_u,x_data,M_p,J_n,Q)
-input = u
-input = torch.tensor(input,requires_grad=False)
+input = transform(cal_boundary(models_u,x_data,M_p,J_n,Q))
+
 target = y_data
-target = torch.tensor(target,requires_grad=False)
+target = transform(target)
+
 
 flag = 1
 epoch = 0
@@ -432,7 +434,7 @@ while epoch <= 5:
         U = net_u(u_plot)
         U = U.detach().numpy()
         points_plot = points.detach().numpy()
-        U_true = anal_u_true(points)
+        U_true = anal_u(points)
         U_true = U_true.detach().numpy()
         Error = np.abs(U - U_true)
         Errormax = np.max(Error)
@@ -452,65 +454,44 @@ models_a,points = pre_define(M_p,J_n,Q)
 points = torch.cat(points,dim=0)
 points = points.view(-1,1)
 
-La = cal_PDE_1st(models_a,points,M_p,J_n,Q)
-La = torch.tensor(La,requires_grad=False)
-La = La.double()
-a = cal_boundary(models_a,points,M_p,J_n,Q)
-a = torch.tensor(a,requires_grad=False)
-a = a.double()
-Lu_2nd = cal_PDE_2nd(models_u,points,M_p,J_n,Q)
-Lu_2nd = torch.tensor(Lu_2nd,requires_grad=False)
-Lu_2nd = Lu_2nd.double()
-Lu_1st = cal_PDE_1st(models_u,points,M_p,J_n,Q)
-Lu_1st = torch.tensor(Lu_1st,requires_grad=False)
-Lu_1st = Lu_1st.double()
+a = transform(cal_boundary(models_a,points,M_p,J_n,Q))
+La_1st = transform(cal_PDE_1st(models_a,points,M_p,J_n,Q))
+Lu_1st = transform(cal_PDE_1st(models_u,points,M_p,J_n,Q))
+Lu_2nd = transform(cal_PDE_2nd(models_u,points,M_p,J_n,Q))
 
 
+# RFM solution
 input_Lu_1st = net_u(Lu_1st)
-input_Lu_1st = torch.tensor(input_Lu_1st,requires_grad=False)
-input_Lu_1st.double()
-
-input_Lu_1st = anal_dudx_1st(points)
-
+input_Lu_1st = transform(input_Lu_1st)
 input_Lu_2nd = net_u(Lu_2nd)
-input_Lu_2nd = torch.tensor(input_Lu_2nd,requires_grad=False)
-input_Lu_2nd.double()
+input_Lu_2nd = transform(input_Lu_2nd)
 
+
+# Analytical solution
+input_Lu_1st = anal_dudx_1st(points)
+input_Lu_1st = transform(input_Lu_1st)
 input_Lu_2nd = anal_dudx_2nd(points)
+input_Lu_2nd = transform(input_Lu_2nd)
 
 
 # PDE part
-input_a = cal_boundary(models_a,points,M_p,J_n,Q)
-input_a = torch.tensor(input_a,requires_grad=False)
-input1 = cal_PDE_1st(models_a,points,M_p,J_n,Q)
-input1 = torch.tensor(input1,requires_grad=False)
-input_f1 = anal_dudx_2nd(points)
-input_f1 = torch.tensor(input_f1,requires_grad=False)
-input_f1 = input_f1.double()
+input_a = transform(cal_boundary(models_a,points,M_p,J_n,Q))
+input1 = transform(cal_PDE_1st(models_a,points,M_p,J_n,Q))
+input_f1 = transform(anal_dudx_2nd(points))
 input_f2 = input1 * anal_dudx_1st(points)
-target_f = L_f(points)
-target_f = torch.tensor(target_f,requires_grad=False)
+target_f = transform(L_f(points))
 
 
 # regularization part
-input_reg1 = cal_boundary(models_a,points[:-1,:],M_p,J_n,Q)
-input_reg1 = torch.tensor(input_reg1,requires_grad=False)
-input_reg1 = input_reg1.double()
-input_reg2 = cal_boundary(models_a,points[1:,:],M_p,J_n,Q)
-input_reg2 = torch.tensor(input_reg2,requires_grad=False)
-input_reg2 = input_reg2.double()
+input_reg1 = transform(cal_boundary(models_a,points[:-1,:],M_p,J_n,Q))
+input_reg2 = transform(cal_boundary(models_a,points[1:,:],M_p,J_n,Q))
 input_reg = (input_reg2 - input_reg1)/h
-input_reg = torch.tensor(input_reg,requires_grad=False)
-input_reg = input_reg.double()
+input_reg = transform(input_reg)
 target_reg = torch.zeros((M_p*(Q+1)-1,1))
-target_reg = torch.tensor(target_reg,requires_grad=False)
-target_reg = target_reg.double()
+target_reg = transform(target_reg)
 
 # input = torch.cat((input_a,input_f1,input_f2,input_reg*0),dim=0)
 # target = torch.cat((target_f,target_reg*0),dim=0)
-
-def true_f(x):
-    return (x**2+1)*torch.sin(x) - 2*x*torch.cos(x)
 
 
 
@@ -521,7 +502,7 @@ while epoch <= 100:
     print('epoch:',epoch)
 
 
-    total_loss = compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd)
+    total_loss = compute_loss_a(points,net_a,La_1st,a,input_Lu_1st,input_Lu_2nd)
 
     gradient_a = torch.autograd.grad(total_loss, net_a.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
 

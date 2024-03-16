@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import random
 import torch.optim as optim
 import matplotlib
-matplotlib.use('TkAgg')
 import sympy as sp
 import scipy.optimize as sciopt
 import copy
@@ -16,7 +15,7 @@ from scipy.linalg import solve as scipy_solve
 from scipy.optimize import minimize
 import pandas as pd
 import torch.nn.init as init
-
+matplotlib.use('TkAgg')
 
 # fix random seed
 torch.set_default_dtype(torch.float64)
@@ -209,14 +208,6 @@ def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
 
     return loss
 
-# analytical solution parameters
-AA = 1
-aa = 2.0*torch.pi
-bb = 3.0*torch.pi
-interval_length = 8.
-lamb = 4
-
-
 def anal_u_true(x):
     return torch.sin(x)
 
@@ -229,24 +220,25 @@ def anal_u_true(x):
 def anal_u(x):
     return torch.sin(x)
 
-# def anal_dudx_1st(x):
-#     return torch.cos(x)
-
-# def anal_dudx_2nd(x):
-#     return -torch.sin(x)
-
-
-
 def anal_dudx_1st(x):
+
+    # true solution
+    return torch.cos(x)
+
+    # RFM solution
     input = cal_PDE_1st(models_u,x,M_p,J_n,Q)
     input = torch.tensor(input,requires_grad=False)
     return net_u(input)
 
 def anal_dudx_2nd(x):
+
+    # true solution
+    return -torch.sin(x)
+
+    # RFM solution
     input = cal_PDE_2nd(models_u,x,M_p,J_n,Q)
     input = torch.tensor(input,requires_grad=False)
     return net_u(input)
-
 
 def anal_a(x):
     #return torch.exp(x**2 + 1)
@@ -255,7 +247,6 @@ def anal_a(x):
 def anal_dadx_1st(x):
     #return 2*x*torch.exp(x**2 + 1)
     return torch.zeros_like(x)
-
 
 def anal_dadx_2nd(x):
     #return torch.exp(x**2 + 1)*(4*x**2+2)
@@ -266,12 +257,11 @@ x_data = torch.linspace(0.,8.,1000)[1:-1]
 x_data = x_data.view(-1,1)
 y_data = anal_u_true(x_data)
 
+# add noise
+mean = 0  
+stddev = 0.1
+noise = np.random.normal(mean, stddev, y_data.shape)
 
-# 生成噪声数据，这里使用正态分布的随机数作为噪声
-# mean = 0  # 均值
-# stddev = 0.1  # 标准差，控制噪声的强度
-# noise = np.random.normal(mean, stddev, y_data.shape)
-# # 添加噪声到原始数据
 # y_data = y_data + noise
 
 
@@ -339,11 +329,11 @@ class GaussNewtonOptimizer:
             for param in self.model.parameters():
                 param -= self.lr * g_n_update.T
 
-
+interval_length = 8.
 M_p = 32
 J_n = 50
 Q = 50
-
+lamb = 4
 h = interval_length/M_p/Q
 
 models_u,points = pre_define(M_p,J_n,Q)
@@ -363,7 +353,7 @@ net_a.apply(init_weights)
 net_a.double()
 
 
-optimizer = GaussNewtonOptimizer(net_u,1)
+optimizer_u = GaussNewtonOptimizer(net_u,1)
 optimizer_a = GaussNewtonOptimizer(net_a,1)
 
 
@@ -383,7 +373,7 @@ while epoch <= 5:
 
     total_loss = compute_loss_u(net_u,input,target)
     # This is for Gauss-Newton
-    optimizer.step(input, target)
+    optimizer_u.step(input, target)
     loss = torch.nn.functional.mse_loss(net_u(input), target)
 
     print('total_loss:',total_loss)
@@ -413,14 +403,18 @@ while epoch <= 5:
         plt.pause(5)  # Wait for 0.1 seconds
         plt.close()  # Clear the figure for the next plot\
 
+def transform(x):
+    y = torch.tensor(x,requires_grad=False)
+    y = y.double()
+    return y
 
 models_a,points = pre_define(M_p,J_n,Q)
 points = torch.cat(points,dim=0)
 points = points.view(-1,1)
 
-La = cal_PDE_1st(models_a,points,M_p,J_n,Q)
-La = torch.tensor(La,requires_grad=False)
-La = La.double()
+La = transform(cal_PDE_1st(models_a,points,M_p,J_n,Q))
+# La = torch.tensor(La,requires_grad=False)
+# La = La.double()
 a = cal_boundary(models_a,points,M_p,J_n,Q)
 a = torch.tensor(a,requires_grad=False)
 a = a.double()
@@ -490,6 +484,7 @@ while epoch <= 5:
     # loss = torch.nn.functional.mse_loss(net_a(input)*input_Lu_2nd + net_a(La)*input_Lu_1st, target)
 
     print('total_loss:',total_loss)
+    
     
 
     epoch += 1
