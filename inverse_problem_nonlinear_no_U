@@ -31,7 +31,7 @@ set_seed(100)
 # Initialize the parameters of your network to be 1
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        init.constant_(m.weight, 0.1)
+        init.constant_(m.weight, -0.1)
         if m.bias is not None:
             init.constant_(m.bias, 1.0)
 
@@ -172,7 +172,6 @@ def cal_boundary(models,x,M_p,J_n,Q):
 
     return u  # as the input layer of boundary connection
 
-
 def scaling(Lu,u):
 
     lambda_i = torch.max(torch.abs(Lu),dim=1)
@@ -235,18 +234,21 @@ def RFM_dudx_2nd(x):
 
 def anal_a(x):
     #return torch.exp(x**2 + 1)
-    return torch.ones_like(x)
-    #return torch.exp(torch.sin(x))
+    #return torch.ones_like(x)
+    return torch.exp(torch.sin(x))
 
 def anal_dadx_1st(x):
     #return 2*x*torch.exp(x**2 + 1)
-    return torch.zeros_like(x)
-    #return torch.exp(torch.sin(x)) * torch.cos(x)
+    #return torch.zeros_like(x)
+    return torch.exp(torch.sin(x)) * torch.cos(x)
 
 def anal_dadx_2nd(x):
     #return torch.exp(x**2 + 1)*(4*x**2+2)
-    return torch.zeros_like(x)
-    #return torch.exp(torch.sin(x)) * (torch.cos(x)**2 - torch.sin(x))
+    #return torch.zeros_like(x)
+    return torch.exp(torch.sin(x)) * (torch.cos(x)**2 - torch.sin(x))
+
+def anal_dadx_2nd_a(x):
+    return -torch.sin(x)
 
 def RFM_a(x):
     input = cal_boundary(models_a,x,M_p,J_n,Q)
@@ -357,7 +359,7 @@ class GaussNewtonOptimizer_a:
         output2 = self.model(input_a)
         outputs = -torch.exp(output2)*(input_f1+output1)
         residuals = outputs - target_f
-        print(torch.max(torch.abs(residuals)))
+        print('max_res=',torch.max(torch.abs(residuals)))
         # residuals = residuals.view(-1)
         jacobian = torch.zeros((len(residuals), M_p*J_n))
         for i, r in enumerate(residuals):
@@ -551,7 +553,7 @@ while epoch <= 100:
         A_xx = net_a(a_xx_plot)
         A_xx = A_xx.detach().numpy()
         points_plot = points.detach().numpy()
-        A_xx_true = anal_dadx_2nd(points)
+        A_xx_true = anal_dadx_2nd_a(points)
         A_xx_true = A_xx_true.detach().numpy()
         Error = np.abs(A_xx - A_xx_true)
         Errormax = np.max(Error)
