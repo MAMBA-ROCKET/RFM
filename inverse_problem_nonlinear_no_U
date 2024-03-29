@@ -185,7 +185,7 @@ def compute_loss_u(net_u,input,target):
     loss = torch.sum((output - target)**2)
     return loss
 
-def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
+def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd,input_reg,target_reg,reg_tuning):
 
     input1 = a
     input2 = La
@@ -197,14 +197,14 @@ def compute_loss_a(points,net_a,La,a,input_Lu_1st,input_Lu_2nd):
     target = torch.tensor(target,requires_grad=False)
     target = target.double()
 
-    #input_reg = La
-    #output_reg = net_a(input_reg)
+
+    output_reg = net_a(input_reg)
     #target_reg = anal_dadx_1st(points)
 
-    #loss_reg = torch.sum((output_reg - target_reg)**2)
+    loss_reg = torch.sum((output_reg - target_reg)**2)*reg_tuning
     loss_f = torch.sum((-torch.exp(output1)*(input_Lu_2nd+output2*input_Lu_1st) - target)**2)
 
-    loss = loss_f# + loss_reg
+    loss = loss_f + loss_reg
 
     return loss
 
@@ -354,11 +354,16 @@ class GaussNewtonOptimizer_a:
         self.model = model
         self.lr = lr
 
-    def step(self, input_a,input_f1,input_f2, target_f):
+    def step(self, input_a,input_f1,input_f2, target_f, input_reg, target_reg, reg_tuning):
         output1 = self.model(input_f2)
         output2 = self.model(input_a)
         outputs = -torch.exp(output2)*(input_f1+output1)
         residuals = outputs - target_f
+
+        output_reg = self.model(input_reg)
+        residuals_reg = (output_reg - target_reg)*np.sqrt(reg_tuning)
+
+        residuals = torch.cat((residuals,residuals_reg),dim=0)
         print('max_res=',torch.max(torch.abs(residuals)))
         # residuals = residuals.view(-1)
         jacobian = torch.zeros((len(residuals), M_p*J_n))
@@ -491,6 +496,7 @@ input_reg = (input_reg2 - input_reg1)/h
 input_reg = transform(input_reg)
 target_reg = torch.zeros((M_p*(Q+1)-1,1))
 target_reg = transform(target_reg)
+reg_tuning = h
 
 # input = torch.cat((input_a,input_f1,input_f2,input_reg*0),dim=0)
 # target = torch.cat((target_f,target_reg*0),dim=0)
@@ -504,7 +510,7 @@ while epoch <= 100:
     print('epoch:',epoch)
 
 
-    total_loss = compute_loss_a(points,net_a,La_1st,a,input_Lu_1st,input_Lu_2nd)
+    total_loss = compute_loss_a(points,net_a,La_1st,a,input_Lu_1st,input_Lu_2nd,input_reg,target_reg,reg_tuning)
 
     gradient_a = torch.autograd.grad(total_loss, net_a.parameters(), retain_graph=True, allow_unused=True, create_graph=False)
 
@@ -513,8 +519,8 @@ while epoch <= 100:
 
     if total_loss > 1e-5:
 
-        # This is for Gauss-Newton
-        optimizer_a.step(input_a,input_f1,input_f2, target_f)
+        # Gauss-Newton with regularization
+        optimizer_a.step(input_a,input_f1,input_f2, target_f, input_reg, target_reg, reg_tuning)
 
     # loss = torch.nn.functional.mse_loss(net_a(input)*input_Lu_2nd + net_a(La)*input_Lu_1st, target)
 
